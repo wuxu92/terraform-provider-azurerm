@@ -35,6 +35,16 @@ func (c *Client) AddToCache(keyVaultId parse.VaultId, dataPlaneUri string) {
 	keysmith.Unlock()
 }
 
+func (c *Client) AddToCacheV2(id parse.IVaultID, dataPlaneUri string) {
+	c.lock.Lock()
+	c.keyCache[id.GetKey()] = keyVaultDetails{
+		keyVaultId:       id.ID(),
+		dataPlaneBaseUri: dataPlaneUri,
+		resourceGroup:    id.GetResourceGroup(),
+	}
+
+}
+
 func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.VaultId) (*string, error) {
 	cacheKey := c.cacheKeyForKeyVault(keyVaultId.Name)
 	keysmith.Lock()

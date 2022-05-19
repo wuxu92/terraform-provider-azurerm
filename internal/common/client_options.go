@@ -22,6 +22,7 @@ type ClientOptions struct {
 	TerraformVersion string
 
 	KeyVaultAuthorizer        autorest.Authorizer
+	MangedHSMAuthorizer       autorest.Authorizer
 	ResourceManagerAuthorizer autorest.Authorizer
 	ResourceManagerEndpoint   string
 	StorageAuthorizer         autorest.Authorizer

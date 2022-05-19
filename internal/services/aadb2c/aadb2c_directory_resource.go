@@ -48,6 +48,7 @@ func (r AadB2cDirectoryResource) IDValidationFunc() pluginsdk.SchemaValidateFunc
 	return tenants.ValidateB2CDirectoryID
 }
 
+// Arguments and attributes copy from key_vault_key_resrouce.go
 func (r AadB2cDirectoryResource) Arguments() map[string]*pluginsdk.Schema {
 	return map[string]*pluginsdk.Schema{
 		"domain_name": {
