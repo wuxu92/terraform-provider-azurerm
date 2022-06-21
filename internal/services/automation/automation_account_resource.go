@@ -5,6 +5,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/automation/sdk/2021-06-22/automationaccount"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
 	"github.com/Azure/azure-sdk-for-go/services/preview/automation/mgmt/2020-01-13-preview/automation"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/identity"
@@ -60,6 +64,39 @@ func resourceAutomationAccount() *pluginsdk.Resource {
 			},
 
 			"identity": commonschema.SystemAssignedUserAssignedIdentityOptional(),
+
+			"encryption": {
+				Type:     pluginsdk.TypeList,
+				Optional: true,
+				Elem: &pluginsdk.Resource{
+					Schema: map[string]*schema.Schema{
+						"identity": commonschema.UserAssignedIdentityOptional(),
+						"key_source": {
+							Type:     pluginsdk.TypeString,
+							Optional: true,
+							ValidateFunc: validation.StringInSlice(
+								automationaccount.PossibleValuesForEncryptionKeySourceType(),
+								false,
+							),
+						},
+						"key_name": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+						"key_version": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+						"key_vault_url": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+					},
+				},
+			},
 
 			"tags": tags.Schema(),
 
@@ -299,4 +336,22 @@ func flattenAutomationAccountIdentity(input *automation.Identity) (*[]interface{
 	}
 
 	return identity.FlattenSystemAndUserAssignedMap(transformed)
+}
+
+func expandEncryption(d *pluginsdk.ResourceData) (*automationaccount.EncryptionProperties, error) {
+	if encryption := d.Get("encryption").([]interface{}); len(encryption) > 0 {
+		encryptionMap := encryption[0].(map[string]interface{})
+		var id interface{}
+		id, err := identity.ExpandUserAssignedMap(encryptionMap["identity"].([]interface{}))
+		if err != nil {
+			return nil, err
+		}
+		prop := &automationaccount.EncryptionProperties{
+			Identity: &automationaccount.EncryptionPropertiesIdentity{
+				UserAssignedIdentity: &id,
+			},
+		}
+		return prop, nil
+	}
+	return nil, nil
 }
