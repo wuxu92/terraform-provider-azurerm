@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/hashicorp/terraform-provider-azurerm/internal/services/automation/sdk/2021-06-22/automationaccount"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/automation/2021-06-22/automationaccount"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
