@@ -35,8 +35,8 @@ func (c *Client) AddToCache(keyVaultId parse.VaultId, dataPlaneUri string) {
 	keysmith.Unlock()
 }
 
-func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.VaultId) (*string, error) {
-	cacheKey := c.cacheKeyForKeyVault(keyVaultId.Name)
+func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.Vaulter) (*string, error) {
+	cacheKey := c.cacheKeyForKeyVault(keyVaultId.GetCacheKey())
 	keysmith.Lock()
 	if lock[cacheKey] == nil {
 		lock[cacheKey] = &sync.RWMutex{}
@@ -45,23 +45,51 @@ func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.VaultI
 	lock[cacheKey].Lock()
 	defer lock[cacheKey].Unlock()
 
-	if keyVaultId.SubscriptionId != c.VaultsClient.SubscriptionID {
-		c.VaultsClient = c.KeyVaultClientForSubscription(keyVaultId.SubscriptionId)
-	}
+	var (
+		baseURI       *string
+		subscription  = keyVaultId.GetSubscriptionID()
+		resourceGroup = keyVaultId.GetResourceGroup()
+		name          = keyVaultId.GetName()
+		err           error
+	)
 
-	resp, err := c.VaultsClient.Get(ctx, keyVaultId.ResourceGroup, keyVaultId.Name)
-	if err != nil {
-		if utils.ResponseWasNotFound(resp.Response) {
-			return nil, fmt.Errorf("%s was not found", keyVaultId)
+	switch vault := keyVaultId.(type) {
+	case parse.VaultId, *parse.VaultId:
+		if subscription != c.VaultsClient.SubscriptionID {
+			c.VaultsClient = c.KeyVaultClientForSubscription(subscription)
 		}
-		return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
-	}
 
-	if resp.Properties == nil || resp.Properties.VaultURI == nil {
-		return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
-	}
+		resp, err := c.VaultsClient.Get(ctx, resourceGroup, vault.GetName())
+		if err != nil {
+			if utils.ResponseWasNotFound(resp.Response) {
+				return nil, fmt.Errorf("%s was not found", keyVaultId)
+			}
+			return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
+		}
 
-	return resp.Properties.VaultURI, nil
+		if resp.Properties == nil || resp.Properties.VaultURI == nil {
+			return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
+		}
+
+		baseURI = resp.Properties.VaultURI
+	case parse.ManagedHSMId, *parse.ManagedHSMId:
+		resp, err := c.ManagedHsmClient.Get(ctx, resourceGroup, name)
+		if err != nil {
+			if utils.ResponseWasNotFound(resp.Response) {
+				return nil, fmt.Errorf("%s was not found", keyVaultId)
+			}
+			return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
+		}
+
+		if resp.Properties == nil || resp.Properties.HsmURI == nil {
+			return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
+		}
+
+		baseURI = resp.Properties.HsmURI
+	default:
+		err = fmt.Errorf("not support key vault type: %q", keyVaultId)
+	}
+	return baseURI, err
 }
 
 func (c *Client) Exists(ctx context.Context, keyVaultId parse.VaultId) (bool, error) {
