@@ -197,7 +197,7 @@ func resourceKeyVaultKey() *pluginsdk.Resource {
 
 func resourceKeyVaultKeyCreate(d *pluginsdk.ResourceData, meta interface{}) error {
 	keyVaultsClient := meta.(*clients.Client).KeyVault
-	client := meta.(*clients.Client).KeyVault.ManagementClient
+	client := keyVaultsClient.ManagementClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -212,6 +212,7 @@ func resourceKeyVaultKeyCreate(d *pluginsdk.ResourceData, meta interface{}) erro
 		if err != nil {
 			return err
 		}
+		client = keyVaultsClient.MHSMClient
 	}
 
 	keyVaultBaseUri, err := keyVaultsClient.BaseUriForKeyVault(ctx, vaulter)
