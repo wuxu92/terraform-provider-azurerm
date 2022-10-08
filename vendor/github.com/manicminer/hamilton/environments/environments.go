@@ -16,6 +16,7 @@ type Environment struct {
 	ResourceManager     Api
 	BatchManagement     Api
 	DataLake            Api
+	ManagedHSM          Api
 	KeyVault            Api
 	OperationalInsights Api
 	OSSRDBMS            Api
@@ -34,6 +35,7 @@ var (
 		ResourceManager:     ResourceManagerPublic,
 		BatchManagement:     BatchManagementPublic,
 		DataLake:            DataLakePublic,
+		ManagedHSM:          ManagedHSMPublic,
 		KeyVault:            KeyVaultPublic,
 		OperationalInsights: OperationalInsightsPublic,
 		OSSRDBMS:            OSSRDBMSPublic,

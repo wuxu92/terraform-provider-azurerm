@@ -35,6 +35,8 @@ const (
 	KeyVaultChinaEndpoint  ApiEndpoint = "https://vault.azure.cn"
 	KeyVaultUSGovEndpoint  ApiEndpoint = "https://vault.usgovcloudapi.net"
 
+	ManagedHSMPublicEndpoint ApiEndpoint = "https://managedhsm.azure.net"
+
 	OperationalInsightsPublicEndpoint ApiEndpoint = "https://api.loganalytics.io"
 	OperationalInsightsUSGovEndpoint  ApiEndpoint = "https://api.loganalytics.us"
 

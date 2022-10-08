@@ -118,6 +118,11 @@ var (
 		Endpoint: KeyVaultUSGovEndpoint,
 	}
 
+	ManagedHSMPublic = Api{
+		AppId:    PublishedApis["AzureKeyVault"],
+		Endpoint: ManagedHSMPublicEndpoint,
+	}
+
 	OperationalInsightsPublic = Api{
 		AppId:    PublishedApis["LogAnalytics"],
 		Endpoint: OperationalInsightsPublicEndpoint,
