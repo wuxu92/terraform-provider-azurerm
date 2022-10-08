@@ -10,6 +10,7 @@ type Client struct {
 	ManagedHsmClient *keyvault.ManagedHsmsClient
 	ManagementClient *keyvaultmgmt.BaseClient
 	VaultsClient     *keyvault.VaultsClient
+	MHSMRoleClient   *keyvaultmgmt.RoleDefinitionsClient
 	options          *common.ClientOptions
 }
 
@@ -20,6 +21,9 @@ func NewClient(o *common.ClientOptions) *Client {
 	managementClient := keyvaultmgmt.New()
 	o.ConfigureClient(&managementClient.Client, o.KeyVaultAuthorizer)
 
+	mhsmRoleDefineClient := keyvaultmgmt.NewRoleDefinitionsClient()
+	o.ConfigureClient(&mhsmRoleDefineClient.Client, o.MHSMAuthorizer)
+
 	vaultsClient := keyvault.NewVaultsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
 	o.ConfigureClient(&vaultsClient.Client, o.ResourceManagerAuthorizer)
 
@@ -27,6 +31,7 @@ func NewClient(o *common.ClientOptions) *Client {
 		ManagedHsmClient: &managedHsmClient,
 		ManagementClient: &managementClient,
 		VaultsClient:     &vaultsClient,
+		MHSMRoleClient:   &mhsmRoleDefineClient,
 		options:          o,
 	}
 }
