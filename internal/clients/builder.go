@@ -115,6 +115,8 @@ func Build(ctx context.Context, builder ClientBuilder) (*Client, error) {
 
 	keyVaultAuth = builder.AuthConfig.MSALBearerAuthorizerCallback(ctx, environment.KeyVault, sender, oauthConfig, string(environment.KeyVault.Endpoint))
 
+	hsmAuth := builder.AuthConfig.MSALBearerAuthorizerCallback(ctx, environment.ManagedHSM, sender, oauthConfig, string(environment.ManagedHSM.Endpoint))
+
 	// Helper for obtaining endpoint-specific tokens
 	tokenFunc = func(endpoint string) (autorest.Authorizer, error) {
 		api := environments.Api{Endpoint: environments.ApiEndpoint(endpoint)}
@@ -131,6 +133,7 @@ func Build(ctx context.Context, builder ClientBuilder) (*Client, error) {
 		PartnerId:                   builder.PartnerId,
 		TerraformVersion:            builder.TerraformVersion,
 		KeyVaultAuthorizer:          keyVaultAuth,
+		MHSMAuthorizer:              hsmAuth,
 		ResourceManagerAuthorizer:   auth,
 		ResourceManagerEndpoint:     env.ResourceManagerEndpoint,
 		StorageAuthorizer:           storageAuth,
