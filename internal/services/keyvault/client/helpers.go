@@ -18,25 +18,65 @@ var (
 	lock           = map[string]*sync.RWMutex{}
 )
 
+type vaultCahcher interface {
+	GetVault(vault parse.Vaulter) *keyVaultDetails
+	AddVault(vault parse.Vaulter, dataPlaneURI string)
+	Delete(vault parse.Vaulter)
+}
+
+type vaultCache struct {
+	cache map[string]keyVaultDetails
+	lock  sync.RWMutex
+}
+
+func (v *vaultCache) GetVault(vault parse.Vaulter) (res *keyVaultDetails) {
+	v.lock.RLock()
+	if val, ok := v.cache[vault.GetCacheKey()]; ok {
+		res = &val
+	}
+	v.lock.RUnlock()
+	return
+}
+
+func (v *vaultCache) AddVault(vault parse.Vaulter, dataPlaneURI string) {
+	v.lock.Lock()
+	v.cache[vault.GetCacheKey()] = keyVaultDetails{
+		keyVaultId:       vault.ID(),
+		dataPlaneBaseUri: dataPlaneURI,
+		resourceGroup:    vault.GetResourceGroup(),
+	}
+	v.lock.Unlock()
+}
+
+func (v *vaultCache) Delete(vault parse.Vaulter) {
+	v.lock.Lock()
+	delete(v.cache, vault.GetCacheKey())
+	v.lock.Unlock()
+}
+
+var vaultCacheIns vaultCahcher = &vaultCache{
+	cache: map[string]keyVaultDetails{},
+}
+
 type keyVaultDetails struct {
 	keyVaultId       string
 	dataPlaneBaseUri string
 	resourceGroup    string
 }
 
-func (c *Client) AddToCache(keyVaultId parse.VaultId, dataPlaneUri string) {
-	cacheKey := c.cacheKeyForKeyVault(keyVaultId.Name)
+func (c *Client) AddToCache(keyVaultId parse.Vaulter, dataPlaneUri string) {
+	cacheKey := c.cacheKeyForKeyVault(keyVaultId.GetCacheKey())
 	keysmith.Lock()
 	keyVaultsCache[cacheKey] = keyVaultDetails{
 		keyVaultId:       keyVaultId.ID(),
 		dataPlaneBaseUri: dataPlaneUri,
-		resourceGroup:    keyVaultId.ResourceGroup,
+		resourceGroup:    keyVaultId.GetResourceGroup(),
 	}
 	keysmith.Unlock()
 }
 
-func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.VaultId) (*string, error) {
-	cacheKey := c.cacheKeyForKeyVault(keyVaultId.Name)
+func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.Vaulter) (*string, error) {
+	cacheKey := c.cacheKeyForKeyVault(keyVaultId.GetCacheKey())
 	keysmith.Lock()
 	if lock[cacheKey] == nil {
 		lock[cacheKey] = &sync.RWMutex{}
@@ -45,23 +85,54 @@ func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.VaultI
 	lock[cacheKey].Lock()
 	defer lock[cacheKey].Unlock()
 
-	if keyVaultId.SubscriptionId != c.VaultsClient.SubscriptionID {
-		c.VaultsClient = c.KeyVaultClientForSubscription(keyVaultId.SubscriptionId)
-	}
+	var (
+		baseURI       *string
+		subscription  = keyVaultId.GetSubscriptionID()
+		resourceGroup = keyVaultId.GetResourceGroup()
+		name          = keyVaultId.GetName()
+		err           error
+	)
 
-	resp, err := c.VaultsClient.Get(ctx, keyVaultId.ResourceGroup, keyVaultId.Name)
-	if err != nil {
-		if utils.ResponseWasNotFound(resp.Response) {
-			return nil, fmt.Errorf("%s was not found", keyVaultId)
+	switch vault := keyVaultId.(type) {
+	case parse.VaultId, *parse.VaultId:
+		if subscription != c.VaultsClient.SubscriptionID {
+			c.VaultsClient = c.KeyVaultClientForSubscription(subscription)
 		}
-		return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
-	}
 
-	if resp.Properties == nil || resp.Properties.VaultURI == nil {
-		return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
-	}
+		resp, err := c.VaultsClient.Get(ctx, resourceGroup, vault.GetName())
+		if err != nil {
+			if utils.ResponseWasNotFound(resp.Response) {
+				return nil, fmt.Errorf("%s was not found", keyVaultId)
+			}
+			return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
+		}
 
-	return resp.Properties.VaultURI, nil
+		if resp.Properties == nil || resp.Properties.VaultURI == nil {
+			return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
+		}
+
+		baseURI = resp.Properties.VaultURI
+	case parse.ManagedHSMId, *parse.ManagedHSMId:
+		resp, err := c.ManagedHsmClient.Get(ctx, resourceGroup, name)
+		if err != nil {
+			if utils.ResponseWasNotFound(resp.Response) {
+				return nil, fmt.Errorf("%s was not found", keyVaultId)
+			}
+			return nil, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
+		}
+
+		if resp.Properties == nil || resp.Properties.HsmURI == nil {
+			return nil, fmt.Errorf("`properties` was nil for %s", keyVaultId)
+		}
+
+		baseURI = resp.Properties.HsmURI
+	default:
+		err = fmt.Errorf("not support key vault type: %q", keyVaultId)
+	}
+	if baseURI != nil {
+		vaultCacheIns.AddVault(keyVaultId, *baseURI)
+	}
+	return baseURI, err
 }
 
 func (c *Client) Exists(ctx context.Context, keyVaultId parse.VaultId) (bool, error) {
@@ -96,7 +167,7 @@ func (c *Client) Exists(ctx context.Context, keyVaultId parse.VaultId) (bool, er
 }
 
 func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context, resourcesClient *resourcesClient.Client, keyVaultBaseUrl string) (*string, error) {
-	keyVaultName, err := c.parseNameFromBaseUrl(keyVaultBaseUrl)
+	keyVaultName, vaultType, err := c.parseNameFromBaseUrl(keyVaultBaseUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +186,9 @@ func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context, resourcesClient *res
 	}
 
 	filter := fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/vaults' and name eq '%s'", *keyVaultName)
+	if vaultType == parse.VaultTypeMHSM {
+		filter = fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/managedhsm' and name eq '%s'", *keyVaultName)
+	}
 	result, err := resourcesClient.ResourcesClient.List(ctx, filter, "", utils.Int32(5))
 	if err != nil {
 		return nil, fmt.Errorf("listing resources matching %q: %+v", filter, err)
@@ -171,10 +245,10 @@ func (c *Client) cacheKeyForKeyVault(name string) string {
 	return strings.ToLower(name)
 }
 
-func (c *Client) parseNameFromBaseUrl(input string) (*string, error) {
+func (c *Client) parseNameFromBaseUrl(input string) (*string, parse.VaultType, error) {
 	uri, err := url.Parse(input)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// https://the-keyvault.vault.azure.net
@@ -184,8 +258,8 @@ func (c *Client) parseNameFromBaseUrl(input string) (*string, error) {
 	// https://the-keyvault.vault.azure.cn
 
 	segments := strings.Split(uri.Host, ".")
-	if len(segments) < 3 || segments[1] != "vault" {
-		return nil, fmt.Errorf("expected a URI in the format `the-keyvault-name.vault.**` but got %q", uri.Host)
+	if len(segments) < 3 || parse.IsValidValtType(segments[1]) {
+		return nil, "", fmt.Errorf("expected a URI in the format `the-keyvault-name.vault.**` or `the-keyvault-name.managedhsm.**` but got %q", uri.Host)
 	}
-	return &segments[0], nil
+	return &segments[0], parse.VaultType(segments[1]), nil
 }

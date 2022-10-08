@@ -60,7 +60,7 @@ func resourceKeyVaultKey() *pluginsdk.Resource {
 				Type:         pluginsdk.TypeString,
 				Required:     true,
 				ForceNew:     true,
-				ValidateFunc: keyVaultValidate.VaultID,
+				ValidateFunc: validation.Any(keyVaultValidate.VaultID, keyVaultValidate.ManagedHSMID),
 			},
 
 			"key_type": {
@@ -197,20 +197,27 @@ func resourceKeyVaultKey() *pluginsdk.Resource {
 
 func resourceKeyVaultKeyCreate(d *pluginsdk.ResourceData, meta interface{}) error {
 	keyVaultsClient := meta.(*clients.Client).KeyVault
-	client := meta.(*clients.Client).KeyVault.ManagementClient
+	client := keyVaultsClient.ManagementClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
 	log.Print("[INFO] preparing arguments for AzureRM KeyVault Key creation.")
 	name := d.Get("name").(string)
-	keyVaultId, err := parse.VaultID(d.Get("key_vault_id").(string))
+	keyVaultIDStr := d.Get("key_vault_id").(string)
+	var vaulter parse.Vaulter
+	vaulter, err := parse.VaultID(keyVaultIDStr)
 	if err != nil {
-		return err
+		// format checked in schema definition
+		vaulter, err = parse.ManagedHSMID(keyVaultIDStr)
+		if err != nil {
+			return err
+		}
+		client = keyVaultsClient.MHSMClient
 	}
 
-	keyVaultBaseUri, err := keyVaultsClient.BaseUriForKeyVault(ctx, *keyVaultId)
+	keyVaultBaseUri, err := keyVaultsClient.BaseUriForKeyVault(ctx, vaulter)
 	if err != nil {
-		return fmt.Errorf("looking up Key %q vault url from id %q: %+v", name, *keyVaultId, err)
+		return fmt.Errorf("looking up Key %q vault url from id %q: %+v", name, vaulter, err)
 	}
 
 	existing, err := client.GetKey(ctx, *keyVaultBaseUri, name, "")
