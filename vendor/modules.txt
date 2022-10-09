@@ -967,7 +967,10 @@ google.golang.org/protobuf/types/known/timestamppb
 # gopkg.in/yaml.v3 v3.0.1
 ## explicit
 gopkg.in/yaml.v3
+<<<<<<< HEAD
 # software.sslmate.com/src/go-pkcs12 v0.2.0
 ## explicit; go 1.15
 software.sslmate.com/src/go-pkcs12
 software.sslmate.com/src/go-pkcs12/internal/rc2
+=======
+>>>>>>> 41ba90daf4 (download mhsm security domain with key vault certificate)
