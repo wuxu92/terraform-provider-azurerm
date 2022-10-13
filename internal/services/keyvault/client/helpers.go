@@ -214,7 +214,7 @@ func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context,
 	filter := fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/vaults' and name eq '%s'", *keyVaultName)
 	isMHSMVault := vaultType == parse.VaultTypeMHSM
 	if isMHSMVault {
-		filter = fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/managedhsm' and name eq '%s'", *keyVaultName)
+		filter = fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/managedHSMs' and name eq '%s'", *keyVaultName)
 	}
 	result, err := resourcesClient.ResourcesClient.List(ctx, filter, "", utils.Int32(5))
 	if err != nil {

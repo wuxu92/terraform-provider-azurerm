@@ -413,6 +413,10 @@ func resourceKeyVaultKeyRead(d *pluginsdk.ResourceData, meta interface{}) error 
 		return nil
 	}
 
+	if parse.IsMHSMVaulter(keyVaultId) {
+		client = keyVaultsClient.MHSMClient
+	}
+
 	resp, err := client.GetKey(ctx, id.KeyVaultBaseUrl, id.Name, "")
 	if err != nil {
 		if utils.ResponseWasNotFound(resp.Response) {
