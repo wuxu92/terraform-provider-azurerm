@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/services/keyvault/mgmt/2021-10-01/keyvault"
 	"net/url"
 	"strings"
 	"sync"
@@ -135,8 +136,8 @@ func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId parse.Vaulte
 	return baseURI, err
 }
 
-func (c *Client) Exists(ctx context.Context, keyVaultId parse.VaultId) (bool, error) {
-	cacheKey := c.cacheKeyForKeyVault(keyVaultId.Name)
+func (c *Client) Exists(ctx context.Context, keyVaultId parse.Vaulter) (bool, error) {
+	cacheKey := c.cacheKeyForKeyVault(keyVaultId.GetCacheKey())
 	keysmith.Lock()
 	if lock[cacheKey] == nil {
 		lock[cacheKey] = &sync.RWMutex{}
@@ -149,30 +150,55 @@ func (c *Client) Exists(ctx context.Context, keyVaultId parse.VaultId) (bool, er
 		return true, nil
 	}
 
-	resp, err := c.VaultsClient.Get(ctx, keyVaultId.ResourceGroup, keyVaultId.Name)
-	if err != nil {
-		if utils.ResponseWasNotFound(resp.Response) {
-			return false, nil
-		}
-		return false, fmt.Errorf("retrieving %s: %+v", keyVaultId, err)
+	uri, err := c.GetVaultURI(ctx, keyVaultId)
+	if err != nil || uri == "" {
+		return false, err
 	}
 
-	if resp.Properties == nil || resp.Properties.VaultURI == nil {
-		return false, fmt.Errorf("`properties` was nil for %s", keyVaultId)
-	}
-
-	c.AddToCache(keyVaultId, *resp.Properties.VaultURI)
+	c.AddToCache(keyVaultId, uri)
 
 	return true, nil
 }
 
-func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context, resourcesClient *resourcesClient.Client, keyVaultBaseUrl string) (*string, error) {
+// GetVault try to get KeyVault or HSM instance of vaulter
+func (c *Client) GetVault(ctx context.Context, vaulter parse.Vaulter) (
+	vault *keyvault.Vault,
+	hsm *keyvault.ManagedHsm,
+	err error) {
+
+	switch vaulter.Type() {
+	case parse.VaultTypeDefault:
+		vaultIns, err := c.VaultsClient.Get(ctx, vaulter.GetResourceGroup(), vaulter.GetName())
+		return &vaultIns, nil, err
+	case parse.VaultTypeMHSM:
+		hsmIns, err := c.ManagedHsmClient.Get(ctx, vaulter.GetResourceGroup(), vaulter.GetName())
+		return nil, &hsmIns, err
+	}
+	return nil, nil, fmt.Errorf("not supported type: %s", vaulter.Type())
+}
+
+// GetVaultURI Get uri of key vault or uri of hsm
+func (c *Client) GetVaultURI(ctx context.Context, vaulter parse.Vaulter) (uri string, err error) {
+	vault, hsm, err := c.GetVault(ctx, vaulter)
+	if vault != nil && vault.Properties != nil && vault.Properties.VaultURI != nil {
+		uri = *vault.Properties.VaultURI
+	} else if hsm != nil && hsm.Properties != nil && hsm.Properties.HsmURI != nil {
+		uri = *hsm.Properties.HsmURI
+	}
+	return uri, err
+}
+
+func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context,
+	resourcesClient *resourcesClient.Client,
+	keyVaultBaseUrl string) (
+	*string, error) {
+
 	keyVaultName, vaultType, err := c.parseNameFromBaseUrl(keyVaultBaseUrl)
 	if err != nil {
 		return nil, err
 	}
 
-	cacheKey := c.cacheKeyForKeyVault(*keyVaultName)
+	cacheKey := c.cacheKeyForKeyVault(parse.MakeCacheKey(vaultType, *keyVaultName))
 	keysmith.Lock()
 	if lock[cacheKey] == nil {
 		lock[cacheKey] = &sync.RWMutex{}
@@ -186,7 +212,8 @@ func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context, resourcesClient *res
 	}
 
 	filter := fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/vaults' and name eq '%s'", *keyVaultName)
-	if vaultType == parse.VaultTypeMHSM {
+	isMHSMVault := vaultType == parse.VaultTypeMHSM
+	if isMHSMVault {
 		filter = fmt.Sprintf("resourceType eq 'Microsoft.KeyVault/managedhsm' and name eq '%s'", *keyVaultName)
 	}
 	result, err := resourcesClient.ResourcesClient.List(ctx, filter, "", utils.Int32(5))
@@ -200,23 +227,21 @@ func (c *Client) KeyVaultIDFromBaseUrl(ctx context.Context, resourcesClient *res
 				continue
 			}
 
-			id, err := parse.VaultID(*v.ID)
+			//id, err := parse.VaultID(*v.ID)
+			id, err := parse.NewVaulterFromString(*v.ID)
 			if err != nil {
 				return nil, fmt.Errorf("parsing %q: %+v", *v.ID, err)
 			}
-			if !strings.EqualFold(id.Name, *keyVaultName) {
+			if !strings.EqualFold(id.GetName(), *keyVaultName) {
 				continue
 			}
 
-			props, err := c.VaultsClient.Get(ctx, id.ResourceGroup, id.Name)
+			vaultURI, err := c.GetVaultURI(ctx, id)
 			if err != nil {
-				return nil, fmt.Errorf("retrieving %s: %+v", *id, err)
-			}
-			if props.Properties == nil || props.Properties.VaultURI == nil {
-				return nil, fmt.Errorf("retrieving %s: `properties.VaultUri` was nil", *id)
+				return nil, err
 			}
 
-			c.AddToCache(*id, *props.Properties.VaultURI)
+			c.AddToCache(id, vaultURI)
 			return utils.String(id.ID()), nil
 		}
 
@@ -258,7 +283,7 @@ func (c *Client) parseNameFromBaseUrl(input string) (*string, parse.VaultType, e
 	// https://the-keyvault.vault.azure.cn
 
 	segments := strings.Split(uri.Host, ".")
-	if len(segments) < 3 || parse.IsValidValtType(segments[1]) {
+	if len(segments) < 3 || !parse.IsValidValtType(segments[1]) {
 		return nil, "", fmt.Errorf("expected a URI in the format `the-keyvault-name.vault.**` or `the-keyvault-name.managedhsm.**` but got %q", uri.Host)
 	}
 	return &segments[0], parse.VaultType(segments[1]), nil

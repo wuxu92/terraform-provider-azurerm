@@ -27,6 +27,11 @@ var (
 	_ Vaulter = ManagedHSMId{}
 )
 
+func IsMHSMVaulter(v Vaulter) bool {
+	_, ok := v.(*ManagedHSMId)
+	return ok
+}
+
 func NewVaulterFromString(input string) (Vaulter, error) {
 	var e1, e2 error
 	if vid, e1 := VaultID(input); e1 == nil {
@@ -54,7 +59,7 @@ func (id VaultId) Type() VaultType {
 }
 
 func (id VaultId) GetCacheKey() string {
-	return "keyvault:" + id.GetName()
+	return MakeCacheKey(id.Type(), id.GetName())
 }
 
 func (id ManagedHSMId) GetSubscriptionID() string {
@@ -74,5 +79,9 @@ func (id ManagedHSMId) Type() VaultType {
 }
 
 func (id ManagedHSMId) GetCacheKey() string {
-	return "mhsm:" + id.GetName()
+	return MakeCacheKey(id.Type(), id.GetName())
+}
+
+func MakeCacheKey(typ VaultType, name string) string {
+	return fmt.Sprintf("%s:%s", typ, name)
 }

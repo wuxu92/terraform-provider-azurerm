@@ -205,13 +205,12 @@ func resourceKeyVaultKeyCreate(d *pluginsdk.ResourceData, meta interface{}) erro
 	name := d.Get("name").(string)
 	keyVaultIDStr := d.Get("key_vault_id").(string)
 	var vaulter parse.Vaulter
-	vaulter, err := parse.VaultID(keyVaultIDStr)
+	vaulter, err := parse.NewVaulterFromString(keyVaultIDStr)
 	if err != nil {
-		// format checked in schema definition
-		vaulter, err = parse.ManagedHSMID(keyVaultIDStr)
-		if err != nil {
-			return err
-		}
+		return err
+	}
+
+	if parse.IsMHSMVaulter(vaulter) {
 		client = keyVaultsClient.MHSMClient
 	}
 
@@ -392,22 +391,24 @@ func resourceKeyVaultKeyRead(d *pluginsdk.ResourceData, meta interface{}) error 
 	if err != nil {
 		return fmt.Errorf("retrieving the Resource ID the Key Vault at URL %q: %s", id.KeyVaultBaseUrl, err)
 	}
+
 	if keyVaultIdRaw == nil {
 		log.Printf("[DEBUG] Unable to determine the Resource ID for the Key Vault at URL %q - removing from state!", id.KeyVaultBaseUrl)
 		d.SetId("")
 		return nil
 	}
-	keyVaultId, err := parse.VaultID(*keyVaultIdRaw)
+
+	keyVaultId, err := parse.NewVaulterFromString(*keyVaultIdRaw)
 	if err != nil {
 		return err
 	}
 
-	ok, err := keyVaultsClient.Exists(ctx, *keyVaultId)
+	ok, err := keyVaultsClient.Exists(ctx, keyVaultId)
 	if err != nil {
-		return fmt.Errorf("checking if key vault %q for Key %q in Vault at url %q exists: %v", *keyVaultId, id.Name, id.KeyVaultBaseUrl, err)
+		return fmt.Errorf("checking if key vault %q for Key %q in Vault at url %q exists: %v", keyVaultId, id.Name, id.KeyVaultBaseUrl, err)
 	}
 	if !ok {
-		log.Printf("[DEBUG] Key %q Key Vault %q was not found in Key Vault at URI %q - removing from state", id.Name, *keyVaultId, id.KeyVaultBaseUrl)
+		log.Printf("[DEBUG] Key %q Key Vault %q was not found in Key Vault at URI %q - removing from state", id.Name, keyVaultId, id.KeyVaultBaseUrl)
 		d.SetId("")
 		return nil
 	}
@@ -510,8 +511,8 @@ func resourceKeyVaultKeyRead(d *pluginsdk.ResourceData, meta interface{}) error 
 		}
 	}
 
-	d.Set("resource_id", parse.NewKeyID(keyVaultId.SubscriptionId, keyVaultId.ResourceGroup, keyVaultId.Name, id.Name, id.Version).ID())
-	d.Set("resource_versionless_id", parse.NewKeyVersionlessID(keyVaultId.SubscriptionId, keyVaultId.ResourceGroup, keyVaultId.Name, id.Name).ID())
+	d.Set("resource_id", parse.NewVaultKeyID(keyVaultId, id.Name, id.Version).ID())
+	d.Set("resource_versionless_id", parse.NewVaultKeyVersionlessID(keyVaultId, id.Name).ID())
 
 	return tags.FlattenAndSet(d, resp.Tags)
 }
