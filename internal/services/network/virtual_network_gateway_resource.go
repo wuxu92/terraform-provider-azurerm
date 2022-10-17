@@ -435,6 +435,11 @@ func resourceVirtualNetworkGatewayCreateUpdate(d *pluginsdk.ResourceData, meta i
 	}
 
 	if err = future.WaitForCompletionRef(ctx, client.Client); err != nil {
+		// try to delete even wait creating failed. or leave ip/subnet exists
+		deleteFuture, _ := client.Delete(ctx, id.ResourceGroup, id.Name)
+		if deleteFuture.FutureAPI != nil {
+			_ = deleteFuture.WaitForCompletionRef(ctx, client.Client)
+		}
 		return fmt.Errorf("waiting for completion of %s: %+v", id, err)
 	}
 
