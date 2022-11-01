@@ -21,49 +21,102 @@ grammar markdown;
 //options {tokenVocab=CharVocab;}
 
 file_
-    : elem+
+    : (header |list |line )+ EOF
 ;
 
-elem
-//@init {System.err.println(_input.LT(1));} //With predicates, it seems debugging the grammar helps where is normally does not.
-	:	header
-	|	para
-	|	quote
-	|	list
-	|	'\n'
-	;
+header:
+    HEAD TEXT ;
 
-header : '#'+ ~'\n'* '\n' ;
+list:
+    LIST TEXT ;
 
-para:
-    '\n'* paraContent '\n' (nl|EOF) ; // if \n\n, exists loop. if \n not \n, stays in loop.
+//para2:
+//    line+? '\n';
 
-paraContent : (text|bold|italics|link|astericks|underscore|'\n')+ ;
+line:
+    ~(LIST|HEAD) TEXT? '\n'
+//    LINE
+    ;
 
-bold:	'*' ~('\n'|' ') text'*' ;
+LINE:
+     (WS|OPTION|CODEONE|TEXT)+
+    ;
 
-astericks :  WS '*' WS ;
 
-underscore : WS '_' WS ;
+LIST
+    : '-'
+    | '*'
+    | '[]'
+    | '[x]'
+    ;
 
-italics : '_' ~('\n'|' ') text '_' ;
+HEAD
+    : '#'+;
+//
+//TEXT:
+//    [a-zA-Z0-9_]+;
 
-link : '[' text ']' '(' ~')'* ')' ;
+OPTION
+    : '(' ('Required'|'Optional') ')' ;
 
-quote : quoteElem+ nl ;
+CODEONE
+    : '`' [a-zA-Z0-9_ ]+'`';
 
-quoteElem : '>' ~'\n'* '\n' ;
+TEXT
+//    :~('#'|'*'|'>'|'['|']'|'_'|'\n')+
+    :~[#*>\\[\]_\r\n] ~[#*>\\[\]_\r\n]+
+    ;
 
-list:	listElem+ nl nl ;
-
-listElem : (' ' (' ' ' '?)?)? '*' WS paraContent ;
-
-//code: '`' text '`' ;
-
-text: ~('#'|'*'|'>'|'['|']'|'_'|'\n'|'`')+ ;
-
-WS
-   : [ \r\n\t]+ -> skip
+WS:
+    [\t ]
 ;
 
-nl	:	'\r'? '\n' ;
+LN
+: ('\r'?'\n'|'\r')+ -> skip;
+
+END:
+EOF -> skip;
+
+//
+//LN:
+//    [\r\n]{1} -> skip;
+
+//
+//para:
+//    '\n'* paraContent '\n' (NL|EOF) ; // if \n\n, exists loop. if \n not \n, stays in loop.
+//
+//paraContent : (TEXT|bold|italics|link|astericks|underscore|'\n')+? ~'#';
+//
+//bold:	'*' ~('\n'|' ') TEXT'*' ;
+//
+//astericks :  WS '*' WS ;
+//
+//underscore : WS '_' WS ;
+//
+//italics : '_' ~('\n'|' ') TEXT '_' ;
+//
+//link : '[' TEXT ']' '(' ~')'* ')' ;
+//
+//quote : quoteElem+ NL ;
+//
+//quoteElem : '>' ~'\n'* '\n' ;
+//
+//list:	listElem+ NL NL ~'#' ;
+//
+////listElem : (' ' (' ' ' '?)?)? '*' WS paraContent ;
+//listElem : (' ' (' ' ' '?)?)? '*' WS paraContent ;
+//
+////code: '`' text '`' ;
+//
+//TEXT:
+////  ~('#'|'*'|'>'|'['|']'|'_'|'\n'|'`')+
+//    [a-zA-Z0-9_ '"]+
+//;
+//
+//WS
+//   : [ \r\n]+ -> skip
+//;
+//
+//NL:
+//    '\r'? '\n'
+//;

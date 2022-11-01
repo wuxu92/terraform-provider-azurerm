@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	PosDefault = iota
@@ -42,7 +45,20 @@ func (m *MD) EnterHeader(ctx *HeaderContext) {
 func (m *MD) ExitHeader(ctx *HeaderContext) {}
 
 // EnterListElem is called when production listElem is entered.
-func (m *MD) EnterListElem(ctx *ListElemContext) {
+func (m *MD) EnterList(ctx *ListContext) {
+	txt := ctx.GetText()
+	switch m.curPos {
+	case PosArgument:
+		m.Args = append(m.Args, txt)
+	case PosAttribute:
+		m.Attrs = append(m.Attrs, txt)
+	case PosTimeout:
+		m.Timeouts = append(m.Timeouts, txt)
+	default:
+	}
+}
+
+func (m *MD) EnterLine(ctx *LineContext) {
 	txt := ctx.GetText()
 	switch m.curPos {
 	case PosArgument:
@@ -56,7 +72,10 @@ func (m *MD) EnterListElem(ctx *ListElemContext) {
 }
 
 // ExitListElem is called when production listElem is exited.
-func (m *MD) ExitListElem(ctx *ListElemContext) {}
+func (m *MD) ExitList(ctx *ListContext) {
+	txt := ctx.GetText()
+	fmt.Println(txt)
+}
 
 // EnterCode is called when production code is entered.
 //func (m *MD) EnterCode(ctx *CodeContext) {}
