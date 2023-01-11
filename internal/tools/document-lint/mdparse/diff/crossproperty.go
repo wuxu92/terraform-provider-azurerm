@@ -165,6 +165,17 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Dif
 		res = append(res, NewDefaultDiff(path, f, ""))
 	}
 
+	// check forceNew attribute
+	if s.ForceNew != f.ForceNew && f.Name != "resource_group_name" {
+		var forceNew = ForceNewDefault
+		if s.ForceNew && !f.ForceNew {
+			forceNew = ShouldBeForceNew
+		} else if f.ForceNew && !s.ForceNew {
+			forceNew = ShouldBeNotForceNew
+		}
+		res = append(res, NewFoceNewDiff(path, f, forceNew))
+	}
+
 	var subRes *schema2.Resource
 	if res, ok := s.Elem.(*schema2.Resource); ok {
 		subRes = res

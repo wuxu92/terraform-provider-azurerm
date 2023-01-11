@@ -21,6 +21,7 @@ website/node_modules
 *.bak
 *~
 .*.swp
+*.out
 .idea
 *.iml
 *.test

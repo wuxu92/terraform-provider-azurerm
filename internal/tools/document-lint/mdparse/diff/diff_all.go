@@ -73,8 +73,9 @@ func (d *DiffResult) HasDiff() bool {
 func (d *DiffResult) ToString() string {
 	var bs strings.Builder
 	var count int
-	var missCount int
+	var possiblevalueMiss int
 	var crossCount, resourceCount int
+	var reqCount, defaultCount, timeoutCount, forceNewCount int
 	for _, diff := range d.result {
 		if len(diff.Diffs()) > 0 {
 			resourceCount++
@@ -84,17 +85,41 @@ func (d *DiffResult) ToString() string {
 
 			for _, df := range diff.Diffs() {
 				if len(df.Missed) > 0 {
-					missCount += 1
+					possiblevalueMiss += 1
 				}
 				if df.MissType > 0 {
 					crossCount++
+				}
+				if df.RequiredMiss > 0 {
+					reqCount++
+				}
+				if df.DefaultDiff != "" || df.ShouldRemoveDefault {
+					defaultCount++
+				}
+				if len(df.TimeoutDiff) > 0 {
+					timeoutCount += len(df.TimeoutDiff)
+				}
+				if df.ForceNewDiff > 0 {
+					forceNewCount++
 				}
 			}
 		}
 	}
 	bs.WriteString(
-		fmt.Sprintf("total diff find: %d, missed in doc count: %d; crosscheck miss: %d. resource count: %d, cost: %s\n",
-			count, missCount, crossCount, resourceCount, d.end.Sub(d.start)))
+		fmt.Sprintf(
+			`------
+total issues find:    %d
+possible value count: %d
+requiredness count:   %d
+default value count:  %d
+timeout value count:  %d
+force new count: %d
+crosscheck miss: %d
+resource count:  %d
+time costs: %s
+------`,
+			count, possiblevalueMiss, reqCount, defaultCount, timeoutCount, forceNewCount,
+			crossCount, resourceCount, d.end.Sub(d.start)))
 	return bs.String()
 }
 

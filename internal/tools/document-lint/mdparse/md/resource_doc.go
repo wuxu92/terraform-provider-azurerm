@@ -48,12 +48,19 @@ func getDefaultValue(line string) string {
 	return ""
 }
 
+var ForceNewReg = regexp.MustCompile("Changing.*forces? a .*[.$]")
+
+func isForceNew(line string) bool {
+	return ForceNewReg.MatchString(line)
+}
+
 func ExtractListItem(line string) (field *model.Field) {
 	field = &model.Field{
 		Content: line,
 	}
 	// if defautl exists
 	field.Default = getDefaultValue(line)
+	field.ForceNew = isForceNew(line)
 
 	res := fieldReg.FindStringSubmatch(line)
 	if len(res) <= 1 {
@@ -72,12 +79,12 @@ func ExtractListItem(line string) (field *model.Field) {
 		}
 	}
 
-	if defaultIdx := strings.Index(strings.ToLower(line), "defauts to"); defaultIdx > 0 {
-		// try to use the first code block value as default value
-		if values := util.ExtractCodeValue(line[defaultIdx:]); len(values) > 0 {
-			field.Default = values[0]
-		}
-	}
+	//if defaultIdx := strings.Index(strings.ToLower(line), "defaults to"); defaultIdx > 0 {
+	//	// try to use the first code block value as default value
+	//	if values := util.ExtractCodeValue(line[defaultIdx:]); len(values) > 0 {
+	//		field.Default = values[0]
+	//	}
+	//}
 
 	possibleValueSep := func(line string) int {
 		line = strings.ToLower(line)
@@ -175,7 +182,7 @@ func NewFieldFromLine(line string) *model.Field {
 		// use the first code block value as block type name todo this may not right
 		start := strings.Index(line, ")")
 		end := strings.Index(line, "block")
-		if start > 0 && end > 0 {
+		if start > 0 && end > 0 && start < end {
 			if names := util.ExtractCodeValue(line[start:end]); len(names) > 0 {
 				f.BlockTypeName = names[0]
 			}
@@ -201,7 +208,7 @@ func headPos(line string) (pos model.PosType) {
 }
 
 func UnmarshalResourceFromFile(filePath string) (res *model.ResourceDoc, err error) {
-	//fixFileNormalize(filePath)
+	fixFileNormalize(filePath)
 	content, _ := os.ReadFile(filePath)
 	return UnmarshalResource(content)
 }

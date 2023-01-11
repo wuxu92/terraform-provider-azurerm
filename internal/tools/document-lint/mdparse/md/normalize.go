@@ -80,7 +80,12 @@ func fixFileNormalize(file string) {
 	lines := strings.Split(string(content), "\n")
 	var curScope model.PosType
 	var newContent []string
+	var skipThisLine int
 	for idx, line := range lines {
+		if skipThisLine > 0 {
+			skipThisLine--
+			continue
+		}
 		line = replaceNBSP(line)
 		if pos := headPos(line); pos > 0 {
 			curScope = pos
@@ -102,6 +107,24 @@ func fixFileNormalize(file string) {
 		if !curScope.IsArgOrAttr() {
 			newContent = append(newContent, line)
 			continue
+		}
+
+		if strings.HasPrefix(line, "*") && !strings.HasSuffix(line, ".") {
+			idx2 := idx + 1
+			for idx2 < len(lines) {
+				l2 := lines[idx2]
+				if l2 == "" {
+					break
+				}
+				ch := l2[0]
+				if ch == ' ' || (ch >= 'a' && ch < 'z') || (ch >= 'A' && ch <= 'Z') {
+					line += l2
+					skipThisLine++
+					idx2++
+				} else {
+					break
+				}
+			}
 		}
 
 		if tryBlockHeadDetect(line) {
@@ -135,6 +158,8 @@ func fixFileNormalize(file string) {
 				}
 			}
 		}
+
+		line = regexp.MustCompile(`\s+`).ReplaceAllString(line, " ")
 		newContent = append(newContent, line)
 	}
 	//if hasModity {

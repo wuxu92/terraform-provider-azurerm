@@ -165,3 +165,11 @@ func TestDefaultValueReg(t *testing.T) {
 		t.Logf("%d idxs: %v", idx, val)
 	}
 }
+
+func TestForceNewReg(t *testing.T) {
+	str := "* `address` - (Required) The list of upto 3 lines for address information. Changing this forces a new Databox Edge Order to be created.\n"
+	res := ForceNewReg.MatchString(str)
+	t.Log(res)
+	str = ForceNewReg.ReplaceAllString(str, "")
+	t.Log(str)
+}

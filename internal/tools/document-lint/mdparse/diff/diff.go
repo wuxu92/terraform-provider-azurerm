@@ -52,6 +52,12 @@ const (
 	TimeoutDelete
 )
 
+const (
+	ForceNewDefault = iota
+	ShouldBeForceNew
+	ShouldBeNotForceNew
+)
+
 func (t TimeoutType) String() string {
 	return []string{"", "create", "read", "update", "delete"}[t]
 }
@@ -131,6 +137,18 @@ type DiffItem struct {
 	// Default value mismatch
 	DefaultDiff         string // the right default value
 	ShouldRemoveDefault bool
+
+	ForceNewDiff int
+}
+
+func NewFoceNewDiff(key string, f *model.Field, forceNew int) DiffItem {
+	ins := DiffItem{
+		Key:          key,
+		Line:         f.Line,
+		MDFiled:      f,
+		ForceNewDiff: forceNew,
+	}
+	return ins
 }
 
 // NewDefaultDiff if defaultValue is "", then should remove default from doc
@@ -153,7 +171,8 @@ func (d DiffItem) Equals(dest DiffItem) bool {
 		return false
 	}
 
-	if d.MissType != dest.MissType || d.RequiredMiss != dest.RequiredMiss {
+	if d.MissType != dest.MissType || d.RequiredMiss != dest.RequiredMiss || d.ForceNewDiff != dest.ForceNewDiff ||
+		d.DefaultDiff != d.DefaultDiff || len(d.TimeoutDiff) != len(dest.TimeoutDiff) {
 		return false
 	}
 

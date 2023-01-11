@@ -53,6 +53,7 @@ type Field struct {
 	Line      int                 `json:",omitempty"`
 	Typ       FieldType           `json:",omitempty"`
 	Default   string              `json:",omitempty"` // default value as string, empty for no default value
+	ForceNew  bool                `json:",omitempty"` // if contains force new string
 	Content   string              `json:",omitempty"` // origin doc line
 	EnumStart int                 `json:",omitempty"`
 	EnumEnd   int                 `json:",omitempty"`
