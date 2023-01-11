@@ -222,7 +222,14 @@ func (f *Fixer) TryFix() {
 			continue
 		}
 
-		//continue
+		if item.ForceNewDiff > 0 {
+			lines[lineIdx] = fixForceNewDiff(line, item.ForceNewDiff)
+			continue
+		}
+
+		if len(item.Want) == 0 {
+			continue
+		}
 
 		// replace from field.EnumStart to field.EnumEnd
 		var bs strings.Builder
@@ -273,6 +280,22 @@ func (f *Fixer) TryFix() {
 	}
 	f.FixedContent = strings.Join(lines, "\n")
 	return
+}
+
+func fixForceNewDiff(line string, diff int) string {
+	switch diff {
+	case ShouldBeForceNew:
+		line = strings.TrimRight(line, " ")
+		if strings.HasSuffix(line, ",") {
+			line = line[:len(line)-1] + "."
+		} else if !strings.HasSuffix(line, ".") {
+			line += "."
+		}
+		line += " Changing this forces a new resource to be created."
+	case ShouldBeNotForceNew:
+		line = md.ForceNewReg.ReplaceAllString(line, "")
+	}
+	return line
 }
 
 // if value if "", then we should remove the default value part from the document

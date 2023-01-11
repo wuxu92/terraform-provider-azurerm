@@ -165,6 +165,23 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Dif
 		res = append(res, NewDefaultDiff(path, f, ""))
 	}
 
+	// check forceNew attribute
+	if s.ForceNew != f.ForceNew && f.Name != "resource_group_name" {
+		var forceNew = ForceNewDefault
+		if s.ForceNew && !f.ForceNew {
+			forceNew = ShouldBeForceNew
+		} else if f.ForceNew && !s.ForceNew {
+			forceNew = ShouldBeNotForceNew
+		}
+		res = append(res, NewFoceNewDiff(path, f, forceNew))
+	}
+
+	// if code schema is not list/set and md field is attr, then skip iterate sub-fields even exists
+	// for we guess a md property as block if not found other block-type properties
+	if s.Type != schema2.TypeList && f.Typ == model.FieldTypeAttr {
+		return
+	}
+
 	var subRes *schema2.Resource
 	if res, ok := s.Elem.(*schema2.Resource); ok {
 		subRes = res

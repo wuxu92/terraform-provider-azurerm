@@ -70,6 +70,21 @@ func replaceNBSP(line string) string {
 	return string(res)
 }
 
+var spaceReg = regexp.MustCompile(` \s+`)
+
+func removeRedundantSpace(line string) string {
+	// only process property line
+	if !strings.HasPrefix(line, "*") {
+		return line
+	}
+
+	// some line with multi-space in beginning by attention
+	if len(line) < 4 {
+		return line
+	}
+	return line[:4] + spaceReg.ReplaceAllString(line[4:], " ")
+}
+
 func fixFileNormalize(file string) {
 	contentBs, _ := os.ReadFile(file)
 	content := string(contentBs)
@@ -80,7 +95,25 @@ func fixFileNormalize(file string) {
 	lines := strings.Split(string(content), "\n")
 	var curScope model.PosType
 	var newContent []string
+	var skipThisLine int
+	var inHCL bool
 	for idx, line := range lines {
+		if inHCL {
+			newContent = append(newContent, line)
+			if strings.HasPrefix(line, "```") {
+				inHCL = false
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "```") {
+			inHCL = true
+			newContent = append(newContent, line)
+			continue
+		}
+		if skipThisLine > 0 {
+			skipThisLine--
+			continue
+		}
 		line = replaceNBSP(line)
 		if pos := headPos(line); pos > 0 {
 			curScope = pos
@@ -102,6 +135,27 @@ func fixFileNormalize(file string) {
 		if !curScope.IsArgOrAttr() {
 			newContent = append(newContent, line)
 			continue
+		}
+
+		if strings.HasPrefix(line, "*") && !strings.HasSuffix(line, ".") {
+			idx2 := idx + 1
+			for idx2 < len(lines) {
+				l2 := lines[idx2]
+				if l2 == "" {
+					break
+				}
+				ch := l2[0]
+				if ch == ' ' || (ch >= 'a' && ch < 'z') || (ch >= 'A' && ch <= 'Z') {
+					if !strings.HasSuffix(line, " ") && !strings.HasPrefix(l2, " ") {
+						line += " "
+					}
+					line += l2
+					skipThisLine++
+					idx2++
+				} else {
+					break
+				}
+			}
 		}
 
 		if tryBlockHeadDetect(line) {
@@ -135,6 +189,8 @@ func fixFileNormalize(file string) {
 				}
 			}
 		}
+
+		line = removeRedundantSpace(line)
 		newContent = append(newContent, line)
 	}
 	//if hasModity {
@@ -158,7 +214,7 @@ func requireIndex(line string) int {
 	return -1
 }
 
-var tryBlockPropReg = regexp.MustCompile("[*] `.*` .*(One or more |A |A list of ).* blocks?.*")
+var tryBlockPropReg = regexp.MustCompile("[*] `.*` .*(One or more |A |A list of ) [^.,]* blocks?.*")
 
 var defaultValueReg = regexp.MustCompile(`[. ]+[d|D]efaults to (\w+)[,.]`)
 

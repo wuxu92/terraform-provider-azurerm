@@ -12,14 +12,25 @@ var skipProps = []string{
 	"azurerm_nginx_deployment.identity.type",
 	"azurerm_managed_disk.create_option",
 	"azurerm_synapse_role_assignment.role_name",
+	"azurerm_orchestrated_virtual_machine_scale_set.os_profile.linux_configuration.secret.certificate.store",
 	"all.advanced_filter",
 }
 
+// skip auto-generated resources document
+var skipResource = []string{
+	"azurerm_load_test",
+	"azurerm_kubernetes_fleet_manager",
+}
+
 var skipPropMap = map[string]struct{}{}
+var skipResourceMap = map[string]struct{}{}
 
 func init() {
 	for _, k := range skipProps {
 		skipPropMap[k] = struct{}{}
+	}
+	for _, k := range skipResource {
+		skipResourceMap[k] = struct{}{}
 	}
 }
 
@@ -37,4 +48,9 @@ func isSkipProp(rt, prop string) bool {
 		return true
 	}
 	return false
+}
+
+func isSkipResource(rt string) bool {
+	_, ok := skipResourceMap[rt]
+	return ok
 }

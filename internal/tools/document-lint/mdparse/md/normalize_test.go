@@ -26,4 +26,12 @@ func TestMDFile(t *testing.T) {
 func TestRegSubMatch(t *testing.T) {
 	idx := oldBlockHeadReg.FindStringSubmatchIndex("`traffic_analytics` supports the following:")
 	t.Logf("%v", idx)
+
+	for _, val := range []string{
+		"  * `abc`  def",
+		"* `abc` -  something  here.  ",
+	} {
+		res := removeRedundantSpace(val)
+		t.Logf("from `%s` => `%s`", val, res)
+	}
 }

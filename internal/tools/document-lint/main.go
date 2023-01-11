@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -10,12 +11,13 @@ import (
 // pass a list of changed file to check the document
 func main() {
 	result := diff.DiffAll(diff.AzurermRegistersAll())
-	if len(result.GetResult()) == 0 {
+	if !result.HasDiff() {
+		log.Printf("linter runs success")
 		return
 	}
 
 	result.FixDocuments()
-	log.Printf("%s", result.ToString())
-	log.Printf("cost %s", result.CostTime())
+	log.Printf("%s\n", result.ToString())
+	fmt.Printf("linter exists status: 1\n")
 	os.Exit(1)
 }

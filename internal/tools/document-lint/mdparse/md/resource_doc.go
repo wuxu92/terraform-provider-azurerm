@@ -37,7 +37,7 @@ var codeReg = regexp.MustCompile("`([^`]+)`")
 
 var blockPropReg = regexp.MustCompile("blocks?.*(as.*(below|above))")
 
-var blockHeadReg = regexp.MustCompile("^(an?|An?|The) +(`[a-zA-Z0-9_]+`[, and]*)+.*blocks?.*$")
+var blockHeadReg = regexp.MustCompile("^(an?|An?|The)[^`]+(`[a-zA-Z0-9_]+`[, and]*)+.*blocks?.*$")
 
 var DefaultsReg = regexp.MustCompile("[. ]+[Dd]efaults to `([^`]+)`[ .,]?")
 
@@ -48,12 +48,19 @@ func getDefaultValue(line string) string {
 	return ""
 }
 
+var ForceNewReg = regexp.MustCompile(" ?Changing.*forces? a [^.]*(\\.|$)")
+
+func isForceNew(line string) bool {
+	return ForceNewReg.MatchString(line)
+}
+
 func ExtractListItem(line string) (field *model.Field) {
 	field = &model.Field{
 		Content: line,
 	}
 	// if defautl exists
 	field.Default = getDefaultValue(line)
+	field.ForceNew = isForceNew(line)
 
 	res := fieldReg.FindStringSubmatch(line)
 	if len(res) <= 1 {
@@ -72,12 +79,12 @@ func ExtractListItem(line string) (field *model.Field) {
 		}
 	}
 
-	if defaultIdx := strings.Index(strings.ToLower(line), "defauts to"); defaultIdx > 0 {
-		// try to use the first code block value as default value
-		if values := util.ExtractCodeValue(line[defaultIdx:]); len(values) > 0 {
-			field.Default = values[0]
-		}
-	}
+	//if defaultIdx := strings.Index(strings.ToLower(line), "defaults to"); defaultIdx > 0 {
+	//	// try to use the first code block value as default value
+	//	if values := util.ExtractCodeValue(line[defaultIdx:]); len(values) > 0 {
+	//		field.Default = values[0]
+	//	}
+	//}
 
 	possibleValueSep := func(line string) int {
 		line = strings.ToLower(line)
@@ -125,7 +132,7 @@ func ExtractListItem(line string) (field *model.Field) {
 				//}
 				field.EnumEnd = sepIdx + end
 			}
-			//break
+			//break there are more than 1 possible value
 			if sepIdx = possibleValueSep(line[sepIdx+1:]); sepIdx >= 0 {
 				field.Skip = true
 			}
@@ -152,6 +159,7 @@ func ExtractBlockNames(line string) (res []string) {
 }
 
 var blockPropGuessReg = regexp.MustCompile(`(defined|documented).*(below|above)`)
+var blockPropGuessReg2 = regexp.MustCompile("(one or more) `.*` block")
 
 func guessBlockProperty(line string) bool {
 	if blockPropReg.MatchString(line) {
@@ -159,6 +167,10 @@ func guessBlockProperty(line string) bool {
 	}
 
 	if blockPropGuessReg.MatchString(line) {
+		return true
+	}
+
+	if blockPropGuessReg2.MatchString(line) {
 		return true
 	}
 	if strings.Contains(line, "A block to") {
@@ -175,7 +187,7 @@ func NewFieldFromLine(line string) *model.Field {
 		// use the first code block value as block type name todo this may not right
 		start := strings.Index(line, ")")
 		end := strings.Index(line, "block")
-		if start > 0 && end > 0 {
+		if start > 0 && end > 0 && start < end {
 			if names := util.ExtractCodeValue(line[start:end]); len(names) > 0 {
 				f.BlockTypeName = names[0]
 			}
@@ -194,14 +206,15 @@ func headPos(line string) (pos model.PosType) {
 			return pos
 		}
 	}
-	if strings.HasPrefix(line, "##") {
+	// only head2
+	if strings.HasPrefix(line, "##") && !strings.HasPrefix(line, "###") {
 		return model.PosOther
 	}
 	return 0
 }
 
 func UnmarshalResourceFromFile(filePath string) (res *model.ResourceDoc, err error) {
-	//fixFileNormalize(filePath)
+	fixFileNormalize(filePath)
 	content, _ := os.ReadFile(filePath)
 	return UnmarshalResource(content)
 }
@@ -324,6 +337,20 @@ func UnmarshalResource(content []byte) (res *model.ResourceDoc, err error) {
 				}
 			}
 		}
+	}
+	// last try to find the block to link
+	top := res.CurProp(model.PosArgs)
+	for _, blockName := range missSubBlocks {
+		subBlocks := top.FindAllSubBlock(blockName)
+		if len(subBlocks) > 0 {
+			removeMissSub(blockName)
+		}
+		for _, subBlock := range subBlocks {
+			if len(subBlock.Subs) == 0 {
+				subBlock.Subs = res.Blocks[blockName]
+			}
+		}
+
 	}
 	if len(missSubBlocks) > 0 {
 		log.Printf("[doc] %s not block for names %v", res.ResourceName, missSubBlocks)

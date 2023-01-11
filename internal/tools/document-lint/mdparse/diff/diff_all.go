@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 	"os"
 	"strings"
 	"sync"
@@ -23,14 +24,20 @@ type IDiffResult interface {
 func DiffResultToString(res IDiffResult) string {
 	var bs strings.Builder
 	for _, item := range res.Diffs() {
-		if item.MDFiled != nil && item.RequiredMiss == RequiredOK {
+		if item.MDFiled != nil && len(item.Missed) > 0 {
 			bs.WriteString(fmt.Sprintf("\t%s@%d skip: %v:\n\t\tmiss in doc: %v\n\t\tmay miss in code: %v\n", item.Key, item.Line, item.MDFiled.Skip, item.Missed, item.Odd))
 		}
 		if item.MissType != NotMiss {
 			bs.WriteString(fmt.Sprintf("\t miss %s in %s\n", item.Key, item.MissType))
 		}
 		if item.RequiredMiss != RequiredOK {
-			bs.WriteString(fmt.Sprintf("\t required miss: %s", item.RequiredMiss))
+			bs.WriteString(fmt.Sprintf("\t %s required miss: %s", item.Key, item.RequiredMiss))
+		}
+		if item.DefaultDiff != "" || item.ShouldRemoveDefault {
+			bs.WriteString(fmt.Sprintf("\t %s default vlaue: %s", item.Key, item.DefaultDiff))
+		}
+		if item.ForceNewDiff > 0 {
+			bs.WriteString(fmt.Sprintf("\t %s ForceNew: %d", item.Key, item.ForceNewDiff))
 		}
 	}
 	return bs.String()
@@ -67,14 +74,23 @@ func (d *DiffResult) GetResult() []*ResourceDiff {
 
 func (d *DiffResult) HasDiff() bool {
 	result := d.GetResult()
-	return len(result) > 0
+	for _, r := range result {
+		for _, f := range r.Diff {
+			if f.MDFiled == nil || !f.MDFiled.Skip {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (d *DiffResult) ToString() string {
 	var bs strings.Builder
 	var count int
-	var missCount int
+	var possiblevalueMiss int
 	var crossCount, resourceCount int
+	var reqCount, defaultCount, timeoutCount, forceNewCount int
+	var skipCount int
 	for _, diff := range d.result {
 		if len(diff.Diffs()) > 0 {
 			resourceCount++
@@ -83,18 +99,48 @@ func (d *DiffResult) ToString() string {
 			bs.WriteString("\n\n")
 
 			for _, df := range diff.Diffs() {
-				if len(df.Missed) > 0 {
-					missCount += 1
+				if df.MDFiled != nil && df.MDFiled.Skip {
+					skipCount++
+					continue
 				}
 				if df.MissType > 0 {
 					crossCount++
+					continue
+				}
+				if len(df.Missed) > 0 {
+					possiblevalueMiss += 1
+				}
+				if df.RequiredMiss > 0 {
+					reqCount++
+				}
+				if df.DefaultDiff != "" || df.ShouldRemoveDefault {
+					defaultCount++
+				}
+				if len(df.TimeoutDiff) > 0 {
+					timeoutCount += len(df.TimeoutDiff)
+				}
+				if df.ForceNewDiff > 0 {
+					forceNewCount++
 				}
 			}
 		}
 	}
 	bs.WriteString(
-		fmt.Sprintf("total diff find: %d, missed in doc count: %d; crosscheck miss: %d. resource count: %d, cost: %s\n",
-			count, missCount, crossCount, resourceCount, d.end.Sub(d.start)))
+		fmt.Sprintf(
+			`------
+total issues find:    %d
+possible value count: %d
+requiredness count:   %d
+default value count:  %d
+timeout value count:  %d
+skip property count:  %d
+force new count: %d
+crosscheck miss: %d
+resource count:  %d
+time costs: %s
+------`,
+			count, possiblevalueMiss, reqCount, defaultCount, timeoutCount, forceNewCount,
+			skipCount, crossCount, resourceCount, d.end.Sub(d.start)))
 	return bs.String()
 }
 
@@ -113,19 +159,19 @@ func DiffAll(regs Registers) *DiffResult {
 
 func doDiffAll(regs Registers) *DiffResult {
 	var dr = NewDiffResult()
-	//runtime.GOMAXPROCS(1)
-	// loop over
 	var wg sync.WaitGroup
 	// for debug to run only specific resource
-	skipResource := func(name string) bool {
+	skipByResource := func(name string) bool {
 		if env := os.Getenv("ONLY_RESOURCE"); len(env) > 0 && env != "azurerm_" {
 			return name != env
 		}
-		target := ""
-		if target == "" {
-			return false
-		}
-		return name != target
+
+		return isSkipResource(name)
+	}
+
+	skipByRP := func(name string) bool {
+		own := util.GetRPOwner(name)
+		return own == "xiaxin.yi"
 	}
 	// can not split to package in different goroutine which may cause data-race and mix shared pointer up
 	// register may repeat in typed and untyped, so use a map to remove the repeat entry
@@ -143,30 +189,41 @@ func doDiffAll(regs Registers) *DiffResult {
 			// one register exists in both typed register and untyped register
 			var rds []*ResourceDiff
 			var catName string
+
 			if typed, ok := reg.(sdk.TypedServiceRegistration); ok {
+				catName = typed.Name()
+				if skipByRP(catName) {
+					return
+				}
 				for _, res := range typed.Resources() {
-					if skipResource(res.ResourceType()) {
+					if skipByResource(res.ResourceType()) {
 						continue
 					}
 					sch := schema.NewResourceByTyped(res)
 					rd := NewResourceDiff(sch)
 					rd.DiffAll()
 
-					rds = append(rds, rd)
-					catName = typed.Name()
+					if len(rd.Diffs()) > 0 {
+						rds = append(rds, rd)
+					}
 				}
 			}
 			if untyped, ok := reg.(sdk.UntypedServiceRegistration); ok {
+				catName = untyped.Name()
+				if skipByRP(catName) {
+					return
+				}
 				for name, res := range untyped.SupportedResources() {
-					if skipResource(name) {
+					if skipByResource(name) {
 						continue
 					}
 
 					sch := schema.NewResourceByUntyped(res, name)
 					rd := NewResourceDiff(sch)
 					rd.DiffAll()
-					rds = append(rds, rd)
-					catName = untyped.Name()
+					if len(rd.Diffs()) > 0 {
+						rds = append(rds, rd)
+					}
 				}
 			}
 			if len(rds) > 0 {

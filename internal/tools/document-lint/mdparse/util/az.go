@@ -1,7 +1,6 @@
 package util
 
 import (
-	"log"
 	"strings"
 )
 
@@ -11,7 +10,7 @@ func GetRPOwner(rp string) string {
 		return val
 	}
 	//
-	log.Printf("no owner for rp: %v", rp)
+	//log.Printf("no owner for rp: %v", rp)
 	return ""
 }
 

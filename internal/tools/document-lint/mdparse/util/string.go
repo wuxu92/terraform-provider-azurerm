@@ -10,7 +10,7 @@ func ExtractCodeValue(line string) (res []string) {
 	idx1 := strings.Index(line, "`")
 	for idx1 >= 0 {
 		idx2 := idx1 + 1 + strings.Index(line[idx1+1:], "`")
-		if idx2 > len(line) {
+		if idx2 > len(line) || idx2 <= idx1 {
 			log.Printf("===== code not full in %s", line)
 			return
 		}
