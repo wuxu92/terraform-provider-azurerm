@@ -414,6 +414,26 @@ func resourceFirewallPolicyRuleCollectionGroup() *pluginsdk.Resource {
 					},
 				},
 			},
+
+			"firewall_policy_rule_collection": {
+				Type:     pluginsdk.TypeList,
+				Optional: true,
+				MinItems: 1,
+				Elem: &pluginsdk.Resource{
+					Schema: map[string]*pluginsdk.Schema{
+						"name": {
+							Type:         pluginsdk.TypeString,
+							Required:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+						"priority": {
+							Type:         pluginsdk.TypeInt,
+							Required:     true,
+							ValidateFunc: validation.IntBetween(100, 65000),
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -453,6 +473,7 @@ func resourceFirewallPolicyRuleCollectionGroupCreateUpdate(d *pluginsdk.Resource
 	var rulesCollections []network.BasicFirewallPolicyRuleCollection
 	rulesCollections = append(rulesCollections, expandFirewallPolicyRuleCollectionApplication(d.Get("application_rule_collection").([]interface{}))...)
 	rulesCollections = append(rulesCollections, expandFirewallPolicyRuleCollectionNetwork(d.Get("network_rule_collection").([]interface{}))...)
+	rulesCollections = append(rulesCollections, expandFirewallPolicyRuleCollection(d.Get("firewall_policy_rule_collection").([]interface{}))...)
 
 	natRules, err := expandFirewallPolicyRuleCollectionNat(d.Get("nat_rule_collection").([]interface{}))
 	if err != nil {
@@ -512,7 +533,7 @@ func resourceFirewallPolicyRuleCollectionGroupRead(d *pluginsdk.ResourceData, me
 	d.Set("priority", resp.Priority)
 	d.Set("firewall_policy_id", parse.NewFirewallPolicyID(subscriptionId, id.ResourceGroup, id.FirewallPolicyName).ID())
 
-	applicationRuleCollections, networkRuleCollections, natRuleCollections, err := flattenFirewallPolicyRuleCollection(resp.RuleCollections)
+	applicationRuleCollections, networkRuleCollections, natRuleCollections, firewallRuleCollections, err := flattenFirewallPolicyRuleCollection(resp.RuleCollections)
 	if err != nil {
 		return fmt.Errorf("flattening Firewall Policy Rule Collections: %+v", err)
 	}
@@ -521,6 +542,9 @@ func resourceFirewallPolicyRuleCollectionGroupRead(d *pluginsdk.ResourceData, me
 		return fmt.Errorf("setting `application_rule_collection`: %+v", err)
 	}
 	if err := d.Set("network_rule_collection", networkRuleCollections); err != nil {
+		return fmt.Errorf("setting `network_rule_collection`: %+v", err)
+	}
+	if err := d.Set("firewall_policy_rule_collection", firewallRuleCollections); err != nil {
 		return fmt.Errorf("setting `network_rule_collection`: %+v", err)
 	}
 	if err := d.Set("nat_rule_collection", natRuleCollections); err != nil {
@@ -564,6 +588,10 @@ func expandFirewallPolicyRuleCollectionNetwork(input []interface{}) []network.Ba
 	return expandFirewallPolicyFilterRuleCollection(input, expandFirewallPolicyRuleNetwork)
 }
 
+func expandFirewallPolicyRuleCollection(input []interface{}) []network.BasicFirewallPolicyRuleCollection {
+	return expandFirewallPolicyFilterRuleCollection(input, expandFirewallPolicyRule)
+}
+
 func expandFirewallPolicyRuleCollectionNat(input []interface{}) ([]network.BasicFirewallPolicyRuleCollection, error) {
 	result := make([]network.BasicFirewallPolicyRuleCollection, 0)
 	for _, e := range input {
@@ -591,13 +619,18 @@ func expandFirewallPolicyFilterRuleCollection(input []interface{}, f func(input 
 	for _, e := range input {
 		rule := e.(map[string]interface{})
 		output := &network.FirewallPolicyFilterRuleCollection{
-			Action: &network.FirewallPolicyFilterRuleCollectionAction{
-				Type: network.FirewallPolicyFilterRuleCollectionActionType(rule["action"].(string)),
-			},
 			Name:               utils.String(rule["name"].(string)),
 			Priority:           utils.Int32(int32(rule["priority"].(int))),
 			RuleCollectionType: network.RuleCollectionTypeFirewallPolicyFilterRuleCollection,
-			Rules:              f(rule["rule"].([]interface{})),
+		}
+		// firewall policy rule collection has no action
+		if val, ok := rule["action"]; ok {
+			output.Action = &network.FirewallPolicyFilterRuleCollectionAction{
+				Type: network.FirewallPolicyFilterRuleCollectionActionType(val.(string)),
+			}
+		}
+		if val, ok := rule["rule"]; ok {
+			output.Rules = f(val.([]interface{}))
 		}
 		result = append(result, output)
 	}
@@ -659,6 +692,24 @@ func expandFirewallPolicyRuleNetwork(input []interface{}) *[]network.BasicFirewa
 	return &result
 }
 
+func expandFirewallPolicyRule(input []interface{}) *[]network.BasicFirewallPolicyRule {
+	result := make([]network.BasicFirewallPolicyRule, 0)
+	for _, e := range input {
+		condition := e.(map[string]interface{})
+		var protocols []network.FirewallPolicyRuleNetworkProtocol
+		for _, p := range condition["protocols"].([]interface{}) {
+			protocols = append(protocols, network.FirewallPolicyRuleNetworkProtocol(p.(string)))
+		}
+		output := &network.FirewallPolicyRule{
+			Name:        utils.String(condition["name"].(string)),
+			Description: utils.String(condition["description"].(string)),
+			RuleType:    network.RuleTypeFirewallPolicyRule,
+		}
+		result = append(result, output)
+	}
+	return &result
+}
+
 func expandFirewallPolicyRuleNat(input []interface{}) (*[]network.BasicFirewallPolicyRule, error) {
 	result := make([]network.BasicFirewallPolicyRule, 0)
 	for _, e := range input {
@@ -697,14 +748,14 @@ func expandFirewallPolicyRuleNat(input []interface{}) (*[]network.BasicFirewallP
 	return &result, nil
 }
 
-func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRuleCollection) ([]interface{}, []interface{}, []interface{}, error) {
-	var (
-		applicationRuleCollection = []interface{}{}
-		networkRuleCollection     = []interface{}{}
-		natRuleCollection         = []interface{}{}
-	)
+func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRuleCollection) (
+	applicationRuleCollection []interface{},
+	networkRuleCollection []interface{},
+	natRuleCollection []interface{},
+	firewallPolicyRuleCollection []interface{},
+	err2 error) {
 	if input == nil {
-		return applicationRuleCollection, networkRuleCollection, natRuleCollection, nil
+		return
 	}
 
 	for _, e := range *input {
@@ -741,7 +792,7 @@ func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRul
 			case network.ApplicationRule:
 				appRules, err := flattenFirewallPolicyRuleApplication(rule.Rules)
 				if err != nil {
-					return nil, nil, nil, err
+					return nil, nil, nil, nil, err
 				}
 				result["rule"] = appRules
 
@@ -750,14 +801,23 @@ func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRul
 			case network.Rule:
 				networkRules, err := flattenFirewallPolicyRuleNetwork(rule.Rules)
 				if err != nil {
-					return nil, nil, nil, err
+					return nil, nil, nil, nil, err
 				}
 				result["rule"] = networkRules
 
 				networkRuleCollection = append(networkRuleCollection, result)
 
+			case network.FirewallPolicyRule:
+				rules, err := flattenFirewallPolicyRule(rule.Rules)
+				if err != nil {
+					return nil, nil, nil, nil, err
+				}
+				result["rule"] = rules
+
+				firewallPolicyRuleCollection = append(firewallPolicyRuleCollection, result)
+
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown rule condition type %+v", (*rule.Rules)[0])
+				return nil, nil, nil, nil, fmt.Errorf("unknown rule condition type %+v", (*rule.Rules)[0])
 			}
 		case network.FirewallPolicyNatRuleCollection:
 			var name string
@@ -776,7 +836,7 @@ func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRul
 
 			rules, err := flattenFirewallPolicyRuleNat(rule.Rules)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			result = map[string]interface{}{
 				"name":     name,
@@ -788,10 +848,10 @@ func flattenFirewallPolicyRuleCollection(input *[]network.BasicFirewallPolicyRul
 			natRuleCollection = append(natRuleCollection, result)
 
 		default:
-			return nil, nil, nil, fmt.Errorf("unknown rule type %+v", rule)
+			return nil, nil, nil, nil, fmt.Errorf("unknown rule type %+v", rule)
 		}
 	}
-	return applicationRuleCollection, networkRuleCollection, natRuleCollection, nil
+	return applicationRuleCollection, networkRuleCollection, natRuleCollection, firewallPolicyRuleCollection, nil
 }
 
 func flattenFirewallPolicyRuleApplication(input *[]network.BasicFirewallPolicyRule) ([]interface{}, error) {
@@ -886,6 +946,36 @@ func flattenFirewallPolicyRuleNetwork(input *[]network.BasicFirewallPolicyRule) 
 			"destination_ports":     utils.FlattenStringSlice(rule.DestinationPorts),
 		})
 	}
+	return output, nil
+}
+
+func flattenFirewallPolicyRule(input *[]network.BasicFirewallPolicyRule) ([]interface{}, error) {
+	if input == nil {
+		return []interface{}{}, nil
+	}
+	output := make([]interface{}, 0)
+	for _, e := range *input {
+		rule, ok := e.(network.FirewallPolicyRule)
+		if !ok {
+			return nil, fmt.Errorf("unexpected non-application rule: %+v", e)
+		}
+
+		var name string
+		if rule.Name != nil {
+			name = *rule.Name
+		}
+
+		var description string
+		if rule.Description != nil {
+			description = *rule.Description
+		}
+
+		output = append(output, map[string]interface{}{
+			"name":        name,
+			"description": description,
+		})
+	}
+
 	return output, nil
 }
 

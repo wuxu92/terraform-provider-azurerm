@@ -315,6 +315,10 @@ resource "azurerm_firewall_policy_rule_collection_group" "test" {
       translated_port     = "8080"
     }
   }
+  firewall_policy_rule_collection {
+    name     = "firewall_policy_rule_collection1"
+    priority = 700
+ }
 }
 `, data.RandomInteger, data.Locations.Primary)
 }
