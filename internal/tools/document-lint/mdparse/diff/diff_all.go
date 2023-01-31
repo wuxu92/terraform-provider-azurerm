@@ -24,7 +24,7 @@ type IDiffResult interface {
 func DiffResultToString(res IDiffResult) string {
 	var bs strings.Builder
 	for _, item := range res.Diffs() {
-		if item.MDFiled != nil && len(item.Missed) > 0 {
+		if item.MDFiled != nil && (len(item.Missed)+len(item.Odd) > 0) {
 			bs.WriteString(fmt.Sprintf("\t%s@%d skip: %v:\n\t\tmiss in doc: %v\n\t\tmay miss in code: %v\n", item.Key, item.Line, item.MDFiled.Skip, item.Missed, item.Odd))
 		}
 		if item.MissType != NotMiss {
@@ -170,8 +170,11 @@ func doDiffAll(regs Registers) *DiffResult {
 	}
 
 	skipByRP := func(name string) bool {
-		own := util.GetRPOwner(name)
-		return own == "xiaxin.yi"
+		if env := os.Getenv("SKIP_OWNER"); env != "" {
+			own := util.GetRPOwner(name)
+			return own == env
+		}
+		return false
 	}
 	// can not split to package in different goroutine which may cause data-race and mix shared pointer up
 	// register may repeat in typed and untyped, so use a map to remove the repeat entry

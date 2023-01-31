@@ -126,6 +126,10 @@ func ExtractListItem(line string) (field *model.Field) {
 						pointEnd = len(subStr)
 					}
 				}
+				// search end to a dot
+				if pointEnd < start {
+					break
+				}
 				enums = append(enums, strings.Trim(subStr[start:end], "`'\""))
 				//if idx == 0 {
 				//	field.EnumStart = sepIdx + start
@@ -282,10 +286,7 @@ func UnmarshalResource(content []byte) (res *model.ResourceDoc, err error) {
 				field.Path = curXPath + "." + field.Path
 			}
 			if field.Typ == model.FieldTypeBlock {
-				if sub, ok := res.Blocks[field.Name]; ok {
-					field.Subs = sub
-					removeMissSub(field.Name)
-				} else if sub, ok = res.Blocks[field.BlockTypeName]; ok {
+				if sub, ok := res.Blocks[field.BlockTypeName]; ok {
 					field.Subs = sub
 					removeMissSub(field.Name)
 				}
@@ -351,6 +352,10 @@ func UnmarshalResource(content []byte) (res *model.ResourceDoc, err error) {
 			}
 		}
 
+	}
+	fixed := res.TuneSubBlocks()
+	for _, name := range fixed {
+		removeMissSub(name)
 	}
 	if len(missSubBlocks) > 0 {
 		log.Printf("[doc] %s not block for names %v", res.ResourceName, missSubBlocks)

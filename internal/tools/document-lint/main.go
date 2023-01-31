@@ -12,12 +12,12 @@ import (
 func main() {
 	result := diff.DiffAll(diff.AzurermRegistersAll())
 	if !result.HasDiff() {
-		log.Printf("linter runs success")
+		log.Printf("document linter runs success, time costs: %v", result.CostTime())
 		return
 	}
 
 	result.FixDocuments()
 	log.Printf("%s\n", result.ToString())
-	fmt.Printf("linter exists status: 1\n")
+	fmt.Printf("document linter runs failed with: 1\n")
 	os.Exit(1)
 }

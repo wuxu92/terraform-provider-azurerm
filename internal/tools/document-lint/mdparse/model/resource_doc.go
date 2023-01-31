@@ -133,9 +133,16 @@ func (f *Field) MatchName(name string) *Field {
 
 func (f *Field) AllSubBlock(name string, needBlock bool) (res []*Field) {
 	// name **or** guessed block type name equals name
-	if (f.BlockTypeName == name || f.Name == name) && (!needBlock || f.Typ == FieldTypeBlock) {
+	if f.Typ == FieldTypeBlock && f.BlockTypeName == name {
 		res = append(res, f)
 		return
+	}
+	if !needBlock {
+		// if not need block type
+		if f.BlockTypeName == "" && f.Name == name {
+			res = append(res, f)
+			return
+		}
 	}
 	for _, f1 := range f.Subs {
 		res = append(res, f1.AllSubBlock(name, needBlock)...)
@@ -282,6 +289,30 @@ func (r *ResourceDoc) CurProp(pos PosType) Properties {
 		return r.Attr
 	}
 	return nil
+}
+
+// TuneSubBlocks loop blocks to link empty block properties to block by name
+func (r *ResourceDoc) TuneSubBlocks() (fixNames []string) {
+	var partial func(f *Field)
+	partial = func(f *Field) {
+		if f.Typ == FieldTypeBlock {
+			if f.Subs == nil {
+				fixNames = append(fixNames, f.BlockTypeName)
+				f.Subs = r.Blocks[f.BlockTypeName]
+			}
+			for _, f2 := range f.Subs {
+				partial(f2)
+			}
+		}
+	}
+
+	for _, f := range r.Args {
+		partial(f)
+	}
+	for _, f := range r.Attr {
+		partial(f)
+	}
+	return
 }
 
 func NewResourceDoc() *ResourceDoc {

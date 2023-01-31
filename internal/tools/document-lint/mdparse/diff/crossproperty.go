@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	schema2 "github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/model"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/schema"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 func crossCheckProperty(r *schema.Resource, md *model.ResourceDoc) (res []DiffItem) {
@@ -117,6 +117,12 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Dif
 			}
 			if strings.Contains(strings.ToLower(f.Content), "deprecated") {
 				path += " deprecated"
+			}
+			// not available for some block
+			if idx := strings.Index(strings.ToLower(f.Content), "not available for"); idx > 0 {
+				if code := util.FirstCodeValue(f.Content[idx:]); code != "" && strings.Contains(path, code) {
+					return res
+				}
 			}
 			res = append(res, NewMissDiffItem(path, MissInCode))
 		}

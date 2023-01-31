@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+func FirstCodeValue(line string) string {
+	if vals := ExtractCodeValue(line); len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
+}
+
 func ExtractCodeValue(line string) (res []string) {
 	idx1 := strings.Index(line, "`")
 	for idx1 >= 0 {
