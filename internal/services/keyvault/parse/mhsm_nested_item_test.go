@@ -3,6 +3,7 @@ package parse
 import "testing"
 
 func TestNewMHSMNestedItemID(t *testing.T) {
+	mhsmType := MHSMKeys
 	cases := []struct {
 		Scenario        string
 		keyVaultBaseUrl string
@@ -35,7 +36,7 @@ func TestNewMHSMNestedItemID(t *testing.T) {
 		},
 	}
 	for idx, tc := range cases {
-		id, err := NewMHSMNestedItemID(tc.keyVaultBaseUrl, tc.Scope, RoleAssignmentType, tc.Name)
+		id, err := NewMHSMNestedItemID(tc.keyVaultBaseUrl, tc.Scope, mhsmType, tc.Name)
 		if err != nil {
 			if !tc.ExpectError {
 				t.Fatalf("Got error for New Resource ID '%s': %+v", tc.keyVaultBaseUrl, err)
@@ -107,7 +108,7 @@ func TestParseMHSMNestedItemID(t *testing.T) {
 	}
 
 	for idx, tc := range cases {
-		secretId, err := ParseMHSMNestedItemID(tc.Input)
+		secretId, err := MHSMNestedItemID(tc.Input)
 		if err != nil {
 			if tc.ExpectError {
 				continue

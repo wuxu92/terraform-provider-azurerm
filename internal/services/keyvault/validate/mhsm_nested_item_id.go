@@ -17,7 +17,7 @@ func MHSMNestedItemId(i interface{}, k string) (warnings []string, errors []erro
 		return warnings, errors
 	}
 
-	if _, err := keyVaultParse.ParseMHSMNestedItemID(v); err != nil {
+	if _, err := keyVaultParse.MHSMNestedItemID(v); err != nil {
 		errors = append(errors, fmt.Errorf("parsing %q: %s", v, err))
 		return warnings, errors
 	}

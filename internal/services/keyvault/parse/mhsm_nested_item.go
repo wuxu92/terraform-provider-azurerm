@@ -2,29 +2,34 @@ package parse
 
 import (
 	"fmt"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/resourceid"
 	"net/url"
 	"strings"
+
+	"github.com/hashicorp/go-azure-helpers/resourcemanager/resourceids"
 )
 
-var _ resourceid.Formatter = MHSMNestedItemId{}
+var _ resourceids.Id = MHSMNestedItemId{}
+
+type MHSMResourceType string
 
 const (
-	RoleDefinitionType = "RoleDefinition"
-	RoleAssignmentType = "RoleAssignment"
+	MHSMKeys           MHSMResourceType = ""
+	RoleDefinitionType MHSMResourceType = "RoleDefinition"
+	RoleAssignmentType MHSMResourceType = "RoleAssignment"
+	MSHMDownload       MHSMResourceType = "Download"
 )
 
 type MHSMNestedItemId struct {
 	VaultBaseUrl string
 	Scope        string
-	Type         string
+	Type         MHSMResourceType
 	Name         string
 }
 
-func NewMHSMNestedItemID(keyVaultBaseUrl, scope, typ, name string) (*MHSMNestedItemId, error) {
-	keyVaultUrl, err := url.Parse(keyVaultBaseUrl)
-	if err != nil || keyVaultBaseUrl == "" {
-		return nil, fmt.Errorf("parsing %q: %+v", keyVaultBaseUrl, err)
+func NewMHSMNestedItemID(hsmBaseUrl, scope string, typ MHSMResourceType, name string) (*MHSMNestedItemId, error) {
+	keyVaultUrl, err := url.Parse(hsmBaseUrl)
+	if err != nil || hsmBaseUrl == "" {
+		return nil, fmt.Errorf("parsing %q: %+v", hsmBaseUrl, err)
 	}
 	// (@jackofallops) - Log Analytics service adds the port number to the API returns, so we strip it here
 	if hostParts := strings.Split(keyVaultUrl.Host, ":"); len(hostParts) > 1 {
@@ -44,7 +49,7 @@ func (n MHSMNestedItemId) ID() string {
 	segments := []string{
 		strings.TrimSuffix(n.VaultBaseUrl, "/"),
 		n.Scope,
-		n.Type,
+		string(n.Type),
 		n.Name,
 	}
 	return strings.TrimSuffix(strings.Join(segments, "/"), "/")
@@ -54,7 +59,7 @@ func (n MHSMNestedItemId) String() string {
 	return n.ID()
 }
 
-func ParseMHSMNestedItemID(input string) (*MHSMNestedItemId, error) {
+func MHSMNestedItemID(input string) (*MHSMNestedItemId, error) {
 	return parseMHSMNestedItemId(input)
 }
 
@@ -77,14 +82,14 @@ func parseMHSMNestedItemId(id string) (*MHSMNestedItemId, error) {
 
 	typeSep := strings.LastIndex(scope, "/")
 	if typeSep <= 0 {
-		return nil, fmt.Errorf("no name speparate exist in %s", id)
+		return nil, fmt.Errorf("no type speparate exist in %s", id)
 	}
 	scope, typ := path[:typeSep], path[typeSep+1:]
 
 	childId := MHSMNestedItemId{
 		VaultBaseUrl: fmt.Sprintf("%s://%s/", idURL.Scheme, idURL.Host),
 		Scope:        scope,
-		Type:         typ,
+		Type:         MHSMResourceType(typ),
 		Name:         name,
 	}
 
