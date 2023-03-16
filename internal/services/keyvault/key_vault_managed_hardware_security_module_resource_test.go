@@ -301,7 +301,7 @@ resource "azurerm_key_vault_role_assignment" "test" {
   principal_id       = "${data.azurerm_client_config.current.object_id}"
 }
 
-resource "azurerm_key_vault_key" "%[2]s" {
+resource "azurerm_key_vault_key_managed_hsm" "%[2]s" {
   name         = "mhsm-key-%[3]s"
   key_vault_id = azurerm_key_vault_managed_hardware_security_module.test.id
   key_type     = "EC-HSM"
