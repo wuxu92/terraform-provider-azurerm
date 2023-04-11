@@ -13,7 +13,7 @@ type FirewallPublicIPAddressAssociationId struct {
 }
 
 func (f FirewallPublicIPAddressAssociationId) ID() string {
-	return fmt.Sprintf("%s|%s", f.FirewallID, f.PublicIPAddressID)
+	return fmt.Sprintf("%s|%s", f.FirewallID.ID(), f.PublicIPAddressID.ID())
 }
 
 func (f FirewallPublicIPAddressAssociationId) String() string {
@@ -32,14 +32,14 @@ func FirewallPublicIPAddressAssociationID(input string) (*FirewallPublicIPAddres
 
 	firewallID, err := FirewallID(segments[0])
 	if err != nil {
-		return nil, fmt.Errorf("parsing Firewall ID %q: %+v", segments[0], err)
+		return nil, fmt.Errorf("parsing Firewall ID of Public IP Address Association ID %q: %+v", segments[0], err)
 	}
 
 	// whilst we need the Resource ID, we may as well validate it
 	publicIPAddress := segments[1]
 	ipAddressID, err := parse.PublicIpAddressID(publicIPAddress)
 	if err != nil {
-		return nil, fmt.Errorf("parsing Public IP Address ID %q: %+v", publicIPAddress, err)
+		return nil, fmt.Errorf("parsing Public IP Address ID of Association ID %q: %+v", publicIPAddress, err)
 	}
 
 	return &FirewallPublicIPAddressAssociationId{

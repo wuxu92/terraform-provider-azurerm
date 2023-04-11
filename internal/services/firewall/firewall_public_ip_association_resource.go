@@ -47,7 +47,7 @@ const (
 
 type PublicIPAssociationResource struct{}
 
-var _ sdk.Resource = (*PublicIPAssociationResource)(nil)
+var _ sdk.ResourceWithUpdate = (*PublicIPAssociationResource)(nil)
 
 func (m PublicIPAssociationResource) Arguments() map[string]*pluginsdk.Schema {
 	return map[string]*pluginsdk.Schema{
@@ -87,9 +87,9 @@ func (m PublicIPAssociationResource) ResourceType() string {
 
 func (m PublicIPAssociationResource) Create() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
-		Timeout: 30 * time.Minute,
+		Timeout: 60 * time.Minute,
 		Func: func(ctx context.Context, meta sdk.ResourceMetaData) error {
-			id, err := m.updateFirewallResource(ctx, meta, createPublicIPAssociation)
+			id, err := m.operateFirewallResource(ctx, meta, createPublicIPAssociation)
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,7 @@ func (m PublicIPAssociationResource) Create() sdk.ResourceFunc {
 	}
 }
 
-func (m PublicIPAssociationResource) updateFirewallResource(ctx context.Context, meta sdk.ResourceMetaData, op publicIPAssociationOperation) (req *parse.FirewallPublicIPAddressAssociationId, err error) {
+func (m PublicIPAssociationResource) operateFirewallResource(ctx context.Context, meta sdk.ResourceMetaData, op publicIPAssociationOperation) (req *parse.FirewallPublicIPAddressAssociationId, err error) {
 	client := meta.Client.Firewall.AzureFirewallsClient
 
 	var model PublicIpAssociationModel
@@ -133,7 +133,7 @@ func (m PublicIPAssociationResource) updateFirewallResource(ctx context.Context,
 	var publicIPs []network.AzureFirewallIPConfiguration
 	if ips := firewallResource.AzureFirewallPropertiesFormat.IPConfigurations; ips != nil {
 		for _, ip := range *ips {
-			if ip.PublicIPAddress != nil && ip.PublicIPAddress.ID != nil && *ip.PublicIPAddress.ID == model.PublicIPAddressId {
+			if ip.PublicIPAddress != nil && ip.PublicIPAddress.ID != nil && *ip.PublicIPAddress.ID == id.PublicIPAddressID.ID() {
 				switch op {
 				case createPublicIPAssociation:
 					return nil, tf.ImportAsExistsError(m.ResourceType(), id.ID())
@@ -154,14 +154,15 @@ func (m PublicIPAssociationResource) updateFirewallResource(ctx context.Context,
 	if op == readPublicIPAssociation {
 		if readIPConfiguration == nil {
 			err = meta.MarkAsGone(id)
+			return nil, err
 		} else {
 			// encode meta
 			model.Name = pointer.From(readIPConfiguration.Name)
 			model.FirewallId = id.FirewallID.ID()
 			model.PublicIPAddressId = pointer.From(readIPConfiguration.PublicIPAddress.ID)
-			err = meta.Encode(model)
+			err = meta.Encode(&model)
+			return id, err
 		}
-		return nil, err
 	}
 
 	// create/update/delete
@@ -192,7 +193,7 @@ func (m PublicIPAssociationResource) Read() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
 		Timeout: 5 * time.Minute,
 		Func: func(ctx context.Context, meta sdk.ResourceMetaData) error {
-			_, err := m.updateFirewallResource(ctx, meta, readPublicIPAssociation)
+			_, err := m.operateFirewallResource(ctx, meta, readPublicIPAssociation)
 			return err
 		},
 	}
@@ -200,9 +201,19 @@ func (m PublicIPAssociationResource) Read() sdk.ResourceFunc {
 
 func (m PublicIPAssociationResource) Delete() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
-		Timeout: 10 * time.Minute,
+		Timeout: 60 * time.Minute,
 		Func: func(ctx context.Context, meta sdk.ResourceMetaData) error {
-			_, err := m.updateFirewallResource(ctx, meta, deletePublicIPAssociation)
+			_, err := m.operateFirewallResource(ctx, meta, deletePublicIPAssociation)
+			return err
+		},
+	}
+}
+
+func (m PublicIPAssociationResource) Update() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 60 * time.Minute,
+		Func: func(ctx context.Context, meta sdk.ResourceMetaData) error {
+			_, err := m.operateFirewallResource(ctx, meta, updatePublicIPAssociation)
 			return err
 		},
 	}

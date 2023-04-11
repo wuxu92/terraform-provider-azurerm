@@ -144,6 +144,7 @@ func SupportedTypedServices() []sdk.TypedServiceRegistration {
 		disks.Registration{},
 		domainservices.Registration{},
 		eventhub.Registration{},
+		firewall.Registration{},
 		fluidrelay.Registration{},
 		hybridcompute.Registration{},
 		iothub.Registration{},
