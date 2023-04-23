@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/md"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 type defaultDiff struct {
@@ -18,6 +19,9 @@ func newDefaultDiff(checkBase checkBase, current string, defaultVaulue string) *
 }
 
 func (c defaultDiff) String() string {
+	if c.Default == "" {
+		return fmt.Sprintf("%s should %s have default value", c.checkBase.Str(), util.Bold("NOT"))
+	}
 	return fmt.Sprintf("%s default value should be `%s`", c.checkBase.Str(), c.Default)
 }
 

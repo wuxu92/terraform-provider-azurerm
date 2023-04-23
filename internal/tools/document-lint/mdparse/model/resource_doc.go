@@ -62,6 +62,7 @@ type Field struct {
 	Enums     map[string]struct{} `json:",omitempty"`
 	Subs      Properties          `json:",omitempty"`
 	Skip      bool                `json:",omitempty"` // if skip this field
+	FormatErr bool                // the field has format err causes parse error
 
 	BlockTypeName string `json:",omitempty"` // block type name may not equal block name
 	SameNameAttr  *Field // same name field exists in both arguments and attributes

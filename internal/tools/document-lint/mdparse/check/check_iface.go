@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/model"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 type Checker interface {
@@ -33,10 +34,13 @@ func (c checkBase) ShouldSkip() bool {
 }
 
 func (i checkBase) Str() string {
-	return fmt.Sprintf("%d %s", i.Line(), i.Key())
+	return fmt.Sprintf("%d %s", i.Line(), util.Bold(i.Key()))
 }
 
 func (i checkBase) Line() int {
+	if i.line == 0 {
+		return 1 // if one property missed in document, set to line 1 of doc
+	}
 	return i.line
 }
 

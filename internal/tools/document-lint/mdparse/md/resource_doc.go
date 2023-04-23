@@ -64,7 +64,9 @@ func ExtractListItem(line string) (field *model.Field) {
 	field.ForceNew = isForceNew(line)
 
 	res := fieldReg.FindStringSubmatch(line)
-	if len(res) <= 1 {
+	if len(res) <= 1 || res[1] == "" {
+		field.Name = util.FirstCodeValue(line) // try to use the first code as name
+		field.FormatErr = true
 		return
 	}
 	field.Name = res[1]

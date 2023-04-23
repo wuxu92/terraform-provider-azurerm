@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"strings"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
@@ -74,4 +76,11 @@ func (r *Resource) Init() {
 	}
 	r.PossibleValues = map[string][]string{}
 	r.FindAllInSlicePropByMonkey()
+}
+
+func (r *Resource) FilePathRel() string {
+	if idx := strings.Index(r.FilePath, "internal"); idx > 0 {
+		return "./" + r.FilePath[idx:]
+	}
+	return r.FilePath
 }

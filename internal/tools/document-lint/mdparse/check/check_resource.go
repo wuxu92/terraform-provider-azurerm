@@ -2,12 +2,13 @@ package check
 
 import (
 	"fmt"
-	"path"
+	"os"
 	"strings"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/md"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/model"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/schema"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 // logic to load schema and markdown to print the diff
@@ -30,18 +31,32 @@ func (d *ResourceDiff) ToString() string {
 	var bs strings.Builder
 
 	bs.WriteString(
-		fmt.Sprintf("%s : diff size: %d, document file: %s\n",
-			d.tf.ResourceType,
+		fmt.Sprintf("%s: %s:1 has %d issue[s]:\n",
+			util.Bold(d.tf.ResourceType),
+			d.tf.FilePathRel(),
 			len(d.Diff),
-			path.Base(d.MDFile),
 		),
 	)
 	file := d.MDFile + ":"
 	if idx := strings.Index(file, "website"); idx > 0 {
 		file = "./" + file[idx:]
 	}
+	// read file lines
+	fileBuf, _ := os.ReadFile(d.MDFile)
+	lines := strings.Split(string(fileBuf), "\n")
 	for _, item := range d.Diffs() {
 		bs.WriteString(file + item.String() + "\n")
+		// print out fixed result
+		if lineNum := item.Line() - 1; lineNum > 0 && len(lines) > lineNum {
+			line := lines[lineNum]
+			if fixed, err := item.Fix(line); err == nil && fixed != "" && fixed != line {
+				bs.WriteString("     " + util.IssueLine(line) + "\n")
+				bs.WriteString("  => " + util.FixedCode(fixed))
+				if !strings.HasSuffix(fixed, "\n") {
+					bs.WriteString("\n")
+				}
+			}
+		}
 	}
 	return bs.String()
 }

@@ -111,8 +111,14 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Che
 	if isSkipProp(rt, path) {
 		return
 	}
+
+	if f != nil && f.FormatErr {
+		res = append(res, newFormatErr(f.Content, newCheckBase(f.Line, path, f)))
+		return
+	}
+
 	if s == nil {
-		if path != "id" { // id not defined in code
+		if path != "id" && f != nil { // id not defined in code
 			if strings.TrimSpace(path) == "" {
 				path = fmt.Sprintf("%s:L%d", f.Name, f.Line)
 			}
@@ -129,10 +135,10 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Che
 		}
 		return res
 	}
+
 	if f == nil {
 		return nil
 	}
-
 	base := newCheckBase(f.Line, path, f)
 
 	// check optional. optional&computed property diff

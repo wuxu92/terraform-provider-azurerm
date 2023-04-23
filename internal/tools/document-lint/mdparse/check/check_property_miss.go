@@ -29,7 +29,7 @@ func newPropertyMiss(checkBase checkBase, missType MissType) *propertyMissDiff {
 }
 
 func (c propertyMissDiff) String() string {
-	return fmt.Sprintf("%s missed in %s", c.checkBase.Str(), c.MissType)
+	return fmt.Sprintf("%s not exist in %s", c.checkBase.Str(), c.MissType)
 }
 
 func (c propertyMissDiff) Fix(line string) (result string, err error) {

@@ -13,7 +13,7 @@ func printHelp() {
 	text := `USAGE: azdoc-lint [CMD] [OPTIONS]
 CMD:
   check:	check documents and print the error information
-  fix:	check and try to fix existing errors
+  fix:	 	check and try to fix existing errors
 
 OPTIONS:
 `
@@ -22,7 +22,6 @@ OPTIONS:
 
 var config = struct {
 	cmd          string
-	help         bool
 	dryRun       bool
 	resource     string
 	rp           string
@@ -35,11 +34,10 @@ var config = struct {
 
 func parseArgs() {
 	fs := flag.NewFlagSet("azdoc-check", flag.ExitOnError)
-	fs.BoolVar(&config.help, "h", false, "print help information")
 	fs.StringVar(&config.resource, "resource", os.Getenv("ONLY_RESOURCE"), "a list of resource names to check")
-	fs.StringVar(&config.rp, "rp", os.Getenv("ONLY_RP"), "a list of rp names to check")
+	fs.StringVar(&config.rp, "services", os.Getenv("ONLY_SERVICE"), "a list of services names to check")
 	fs.StringVar(&config.skipResource, "skip-resource", os.Getenv("SKIP_RESOURCE"), "a list of resource names to skip the check")
-	fs.StringVar(&config.skipRP, "skip-rp", os.Getenv("SKIP_RP"), "a list of rp names to skip the check")
+	fs.StringVar(&config.skipRP, "skip-services", os.Getenv("SKIP_SERVICE"), "a list of rp names to skip the check")
 
 	fs.Usage = func() {
 		printHelp()
@@ -75,10 +73,10 @@ func main() {
 
 	if config.cmd == "fix" {
 		if err := result.FixDocuments(); err != nil {
-			log.Fatalf("error occures when try to fix documents: %v", err)
+			log.Fatalf("error occurs when trying to fix documents: %v", err)
 		}
 	}
 	log.Printf("%s\n", result.ToString())
-	fmt.Printf("document linter runs failed with: 1\n")
+	// fmt.Printf("document linter runs failed with: 1\n")
 	os.Exit(1)
 }

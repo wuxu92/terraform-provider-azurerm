@@ -31,11 +31,27 @@ func newPossibleValueDiff(checkBase checkBase, want []string, got []string, miss
 	}
 }
 
+func possibleValueStr(values []string) string {
+	var codes []string
+	for _, val := range values {
+		codes = append(codes, util.ItalicCode(val))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(codes, ", "))
+}
+
 func (p possibleValueDiff) String() string {
-	return fmt.Sprintf(`	%s@%d skip: %v:
-		miss in doc: %v
-		may miss in code: %v
-`, p.checkBase.Key(), p.checkBase.Line(), p.checkBase.MDField().Skip, p.Missed, p.Spare)
+	var missInDoc, missInCode string
+	if len(p.Missed) > 0 {
+		missInDoc = fmt.Sprintf(" missing in document: %s.", possibleValueStr(p.Missed))
+	}
+	if len(p.Spare) > 0 {
+		missInCode = fmt.Sprintf(" missing in code: %v.", possibleValueStr(p.Spare))
+	}
+	return fmt.Sprintf(`%s possible values%s%s`,
+		p.checkBase.Str(),
+		missInDoc,
+		missInCode,
+	)
 }
 
 func (p possibleValueDiff) Fix(line string) (result string, err error) {

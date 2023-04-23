@@ -15,6 +15,9 @@ What Can It Do:
 # print the usage
 go run main.go -h
 
-# run the check command
+# check documents and print the error information
 go run main.go check
+
+# check and try to fix existing errors
+go run main.go fix
 ```

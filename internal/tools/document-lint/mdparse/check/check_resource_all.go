@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/md"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/schema"
@@ -70,7 +71,7 @@ func (d *DiffResult) ToString() string {
 			resourceCount++
 			count += len(diff.Diffs())
 			bs.WriteString(diff.ToString())
-			bs.WriteString("\n\n")
+			bs.WriteString("\n")
 
 			for _, df := range diff.Diffs() {
 				if df.ShouldSkip() {
@@ -95,22 +96,16 @@ func (d *DiffResult) ToString() string {
 			}
 		}
 	}
+	fg := color.FgGreen
+	if count > 0 {
+		fg = color.FgYellow
+	}
 	bs.WriteString(
-		fmt.Sprintf(
+		color.New(color.Bold, fg).Sprintf(
 			`------
-total issues find:    %d
-possible value count: %d
-requiredness count:   %d
-default value count:  %d
-timeout value count:  %d
-skip property count:  %d
-force new count: %d
-crosscheck miss: %d
-resource count:  %d
-time costs: %s
+%d issues found in %d resources
 ------`,
-			count, possiblevalueMiss, reqCount, defaultCount, timeoutCount, forceNewCount,
-			skipCount, crossCount, resourceCount, d.end.Sub(d.start)))
+			count, resourceCount))
 	return bs.String()
 }
 
@@ -145,7 +140,6 @@ func doDiffAll(regs Registers) *DiffResult {
 
 			process := func(ins interface{}, name string) {
 				if SkipResource(name) {
-					log.Printf("skip resource: %s", name)
 					return
 				}
 

@@ -3,12 +3,14 @@ package check
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 type RequiredMiss int
 
 func (r RequiredMiss) String() string {
-	return []string{"ok", "should be required", "should be optional"}[r]
+	return []string{"ok", "required", "optional", "computed"}[r]
 }
 
 const (
@@ -28,7 +30,7 @@ func newRequireDiff(checkBase checkBase, requiredMiss RequiredMiss) *requireDiff
 }
 
 func (c requireDiff) String() string {
-	str := fmt.Sprintf("%s required miss: %s", c.checkBase.Str(), c.RequiredMiss)
+	str := fmt.Sprintf("%s should be %s", c.checkBase.Str(), util.Blue(c.RequiredMiss))
 	return str
 }
 
