@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/model"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tools/document-lint/mdparse/util"
 )
 
 type MissType int
 
 func (m MissType) String() string {
-	return []string{"ok", "doc", "code", "doc attribute"}[m]
+	return []string{"ok", "doc", "code", "doc attribute", "block declare"}[m]
 }
 
 const (
@@ -17,6 +18,7 @@ const (
 	MissInDoc
 	MissInCode
 	MissInDocAttr
+	MissBlockDeclare // document block declare wrong-formatted
 )
 
 type propertyMissDiff struct {
@@ -29,6 +31,9 @@ func newPropertyMiss(checkBase checkBase, missType MissType) *propertyMissDiff {
 }
 
 func (c propertyMissDiff) String() string {
+	if c.MissType == MissBlockDeclare {
+		return fmt.Sprintf("%s block should be declared like '%s'", c.checkBase.Str(), util.ItalicCode("A `xxx` block as defined below."))
+	}
 	return fmt.Sprintf("%s not exist in %s", c.checkBase.Str(), c.MissType)
 }
 
@@ -52,4 +57,8 @@ func newMissInCode(path string, f *model.Field) Checker {
 
 func newMissInDoc(path string, f *model.Field) Checker {
 	return newMissItem(path, f, MissInDoc)
+}
+
+func newMissBlockDeclare(path string, f *model.Field) Checker {
+	return newMissItem(path, f, MissBlockDeclare)
 }

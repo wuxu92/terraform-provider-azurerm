@@ -122,6 +122,8 @@ func ExtractListItem(line string) (field *model.Field) {
 					// point inside the code block
 					if pointEnd = strings.Index(subStr[end:], "."); pointEnd < 0 {
 						pointEnd = len(subStr)
+					} else {
+						pointEnd += end
 					}
 				}
 				// search end to a dot

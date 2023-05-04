@@ -78,7 +78,7 @@ func diffDocMiss(rt, path string, s *schema2.Schema, f *model.Field) (res []Chec
 		return nil
 	case *schema2.Resource:
 		if f.Subs == nil {
-			res = append(res, newMissInDoc(path+" not block", f))
+			res = append(res, newMissBlockDeclare(path, f))
 			return
 		}
 		for key, val := range ele.Schema {

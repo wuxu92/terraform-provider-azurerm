@@ -51,10 +51,7 @@ func (d *ResourceDiff) ToString() string {
 			line := lines[lineNum]
 			if fixed, err := item.Fix(line); err == nil && fixed != "" && fixed != line {
 				bs.WriteString("     " + util.IssueLine(line) + "\n")
-				bs.WriteString("  => " + util.FixedCode(fixed))
-				if !strings.HasSuffix(fixed, "\n") {
-					bs.WriteString("\n")
-				}
+				bs.WriteString("  => " + util.FixedCode(fixed) + "\n")
 			}
 		}
 	}

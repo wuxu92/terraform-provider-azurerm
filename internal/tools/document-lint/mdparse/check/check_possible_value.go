@@ -95,7 +95,7 @@ func (p possibleValueDiff) Fix(line string) (result string, err error) {
 			bs.WriteString("Possible values are ")
 		}
 		bs.WriteString(patchWantEnums(p.Want))
-		if p.MDField().EnumEnd < len(line) {
+		if end := p.MDField().EnumEnd; end > 0 && end < len(line) {
 			bs.WriteString(line[p.MDField().EnumEnd:])
 		} else {
 			f := p.MDField()

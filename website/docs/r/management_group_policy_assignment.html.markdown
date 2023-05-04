@@ -106,7 +106,7 @@ A `overrides` block supports the following:
 
 * `value` - (Required) Specifies the value to override the policy property. Possible values for `policyEffect` override listed [policy effects](https://learn.microsoft.com/en-us/azure/governance/policy/concepts/effects).
 
-* `selectors` - (Optional) One or more `override_selector` as defined below.
+* `selectors` - (Optional) One or more `override_selector` block as defined below.
 
 ---
 
