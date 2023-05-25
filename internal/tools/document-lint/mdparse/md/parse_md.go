@@ -1,6 +1,7 @@
 package md
 
 import (
+	"log"
 	"os"
 	"strings"
 	"unicode"
@@ -25,6 +26,7 @@ const (
 	ItemSeparator
 	ItemAttribute
 	ItemPlainText
+	ItemTimeout
 	//ItemBlankBlock
 )
 
@@ -60,6 +62,21 @@ type Block struct {
 	Name     string
 	HeadLine int
 	Fields   []*model.Field
+	asProp   model.Properties
+}
+
+func (b *Block) asProperties() model.Properties {
+	if b.asProp == nil {
+		res := model.Properties{}
+		for _, f := range b.Fields {
+			if _, ok := res[f.Name]; ok {
+				log.Printf("duplicate field in block %s:%s", b.Name, f.Name)
+			}
+			res[f.Name] = f
+		}
+		b.asProp = res
+	}
+	return b.asProp
 }
 
 func (b *Block) addField(f *model.Field) {
@@ -110,7 +127,6 @@ func mustNewMarkFromFile(file string) *Mark {
 	}
 	m := newMarkFromString(string(bs))
 	m.FilePath = file
-	m.build()
 	return m
 }
 
@@ -167,6 +183,8 @@ func newMarkFromString(content string) *Mark {
 			}
 		}
 	}
+	result.buildField()
+	result.buildStruct()
 	return result
 }
 
@@ -178,7 +196,7 @@ func (m *Mark) addBlock(b Block) {
 	m.Blocks = append(m.Blocks, b)
 }
 
-func (m *Mark) build() {
+func (m *Mark) buildField() {
 	var inBlock bool
 	var block Block
 	var pos model.PosType
@@ -197,12 +215,17 @@ func (m *Mark) build() {
 				m.ResourceType = trimmed
 			}
 		case ItemField:
+			if pos == model.PosTimeout {
+				item.Type = ItemTimeout
+				continue
+			}
 			if pos > model.PosAttr {
 				continue
 			}
 
 			f := NewFieldFromLine(content)
 			f.Line = item.FromLine
+			f.Pos = pos
 			item.Field = f
 			if inBlock {
 				block.addField(f)
@@ -254,4 +277,66 @@ func (m *Mark) build() {
 			inBlock = false
 		}
 	}
+}
+
+func (m *Mark) blockOfName(name string) *Block {
+	var res []Block
+	for _, b := range m.Blocks {
+		for _, n2 := range b.Names {
+			if n2 == name {
+				res = append(res, b)
+			}
+		}
+	}
+	if len(res) == 0 {
+		return nil
+	}
+	if len(res) > 1 {
+		log.Printf("duplicate block exists for %s.%s", m.ResourceType, name)
+	}
+	return &res[0]
+}
+
+// buildStruct build struct of blocks
+func (m *Mark) buildStruct() {
+	fillField := func(f *model.Field) {
+		if f.Typ == model.FieldTypeBlock {
+			// find block
+			if b := m.blockOfName(f.Name); b != nil {
+				f.Subs = b.asProperties()
+			} else {
+				log.Printf("missing block for field %s.%s", m.ResourceType, f.Name)
+			}
+		}
+	}
+
+	for _, f := range m.Fields {
+		fillField(f)
+	}
+
+	// build for block fields
+	for _, b := range m.Blocks {
+		for _, f := range b.Fields {
+			fillField(f)
+		}
+	}
+}
+
+func (m *Mark) buildResourceDoc() *model.ResourceDoc {
+	var doc = model.NewResourceDoc()
+	for _, f := range m.Fields {
+		if f.Pos == model.PosArgs {
+			doc.Args.AddField(f)
+		} else if f.Pos == model.PosAttr {
+			doc.Attr.AddField(f)
+		}
+	}
+	doc.ResourceName = m.ResourceType
+	for _, item := range m.Items {
+		if item.Type == ItemExample {
+			doc.ExampleHCL = item.content()
+		}
+	}
+
+	return doc
 }

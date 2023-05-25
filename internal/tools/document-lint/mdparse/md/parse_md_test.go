@@ -2,14 +2,36 @@ package md
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
+var testDir string
+
+func init() {
+	_, file, _, _ := runtime.Caller(0)
+	testDir = filepath.Join(filepath.Dir(file), "testdata")
+}
+
 func Test_unmarshalFile(t *testing.T) {
-	dir := "/home/wuxu/go/src/github.com/terraform-provider-azurerm/website/docs/r"
-	file := filepath.Join(dir, "automation_account.html.markdown")
-	m := mustNewMarkFromFile(file)
-	if len(m.Items) != 49 {
-		t.Fatal(len(m.Items))
+	args := []struct {
+		file    string
+		itemNum int
+		argsNum int
+	}{
+		{"key_vault.html.markdown", 64, 16},
+		{"media_transform.html.markdown", 270, 5},
+	}
+	for _, arg := range args {
+		file := filepath.Join(testDir, arg.file)
+		m := mustNewMarkFromFile(file)
+		if gotItems := len(m.Items); gotItems != arg.itemNum {
+			t.Fatalf("%s expect item num; %d, got: %d", arg.file, gotItems, arg.itemNum)
+		}
+		doc := m.buildResourceDoc()
+		if gotArgs := len(doc.Args); gotArgs != arg.argsNum {
+			t.Fatalf("`%s` expect arg num: %d, got: %d", arg.file, gotArgs, arg.argsNum)
+		}
+
 	}
 }

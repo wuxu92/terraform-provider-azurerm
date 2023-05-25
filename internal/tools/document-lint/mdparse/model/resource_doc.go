@@ -213,9 +213,6 @@ type ResourceDoc struct {
 
 	Blocks map[string]Properties // two pass get all blocks
 
-	// some dangle block in document
-	DanlingBlock Properties
-
 	PossibleValues map[string]PossibleValue // save a.b.c possible values here
 }
 
@@ -322,7 +319,6 @@ func NewResourceDoc() *ResourceDoc {
 	return &ResourceDoc{
 		Args:           Properties{},
 		Attr:           Properties{},
-		DanlingBlock:   Properties{},
 		PossibleValues: map[string]PossibleValue{},
 		Blocks:         map[string]Properties{},
 	}
