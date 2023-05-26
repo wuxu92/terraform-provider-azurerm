@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -39,15 +38,15 @@ func TestExtractListItem(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			field := ExtractListItem(tt.args)
+			field := extractFieldFromLine(tt.args)
 			if field.Name != tt.wantName {
-				t.Errorf("ExtractListItem() gotName = %v, want %v", field.Name, tt.wantName)
+				t.Errorf("extractFieldFromLine() gotName = %v, want %v", field.Name, tt.wantName)
 			}
 			if field.Required != tt.wantOptional {
-				t.Errorf("ExtractListItem() gotOptional = %v, want %v", field.Required, tt.wantOptional)
+				t.Errorf("extractFieldFromLine() gotOptional = %v, want %v", field.Required, tt.wantOptional)
 			}
 			if !reflect.DeepEqual(field.PossibleValues(), tt.wantEnums) {
-				t.Errorf("ExtractListItem() gotEnums = %v, want %v", field.PossibleValues(), tt.wantEnums)
+				t.Errorf("extractFieldFromLine() gotEnums = %v, want %v", field.PossibleValues(), tt.wantEnums)
 			}
 		})
 	}
@@ -74,7 +73,7 @@ func TestExtractBlockNames(t *testing.T) {
 
 	for idx, test := range tests {
 		t.Run(fmt.Sprint(idx), func(t *testing.T) {
-			names := ExtractBlockNames(test.line)
+			names := extractBlockNames(test.line)
 			if !reflect.DeepEqual(names, test.names) {
 				t.Fatalf("test %d want: %v, got: A%v", idx, test.names, names)
 			}
@@ -99,43 +98,6 @@ func TestScanOrSplit(t *testing.T) {
 			t.Fatalf("%d: %s: %s", idx, line, lines2[idx])
 		}
 	}
-}
-
-func TestUnmarshalResourceFromFile(t *testing.T) {
-	t.Run("from website folder", func(t *testing.T) {
-		testUnmarshalResourceFromFile(t, path.Join(ResourceDir(), "windows_function_app_slot.html.markdown"))
-	})
-	t.Run("from test data-dir", func(t *testing.T) {
-		testUnmarshalResourceFromFile(t, "test1.md")
-	})
-}
-
-func testUnmarshalResourceFromFile(t *testing.T, name string) {
-	if !strings.HasPrefix(name, "/") {
-		name = path.Join(testDataDir(), name)
-	}
-	content, err := os.ReadFile(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = UnmarshalResource(content)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func curDir() string {
-	_, file, _, _ := runtime.Caller(0)
-	dir := path.Dir(file)
-	return dir
-}
-
-func repoDir() string {
-	return path.Dir(curDir())
-}
-
-func testDataDir() string {
-	return path.Join(repoDir(), "test-data")
 }
 
 func TestDefaultValueReg(t *testing.T) {

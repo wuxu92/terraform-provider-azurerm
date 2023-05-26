@@ -77,13 +77,17 @@ func NewTimeoutDiffItem(line int, typ TimeoutType, want int64) TimeoutDiffItem {
 }
 
 type timeoutDiff struct {
-	checkBase   // should be empty
+	checkBase
 	TimeoutDiff []TimeoutDiffItem
+}
+
+func newTimeoutDiff(checkBase checkBase, items []TimeoutDiffItem) *timeoutDiff {
+	return &timeoutDiff{checkBase: checkBase, TimeoutDiff: items}
 }
 
 func (t timeoutDiff) String() string {
 	var bs strings.Builder
-	bs.WriteString("timeout missed:")
+	bs.WriteString(fmt.Sprintf("%d timeout missed:", t.checkBase.Line()))
 	for _, item := range t.TimeoutDiff {
 		bs.WriteString(fmt.Sprintf("%d type: %s, value: %d seconds", item.Line, item.Type, item.Want))
 	}
@@ -107,18 +111,21 @@ func diffTimeout(r *schema.Resource, md *model.ResourceDoc) (res []Checker) {
 		items = append(items, NewTimeoutDiffItem(0, TimeoutMissed, 0))
 		md.Timeouts = &model.Timeouts{} // use an empty timeouts object
 	}
+
 	if ptr := to.Read; ptr != nil {
 		val := int64((*ptr) / time.Second)
 		if mdVal := md.Timeouts.Read; val != mdVal.Value {
 			items = append(items, NewTimeoutDiffItem(mdVal.Line, TimeoutRead, val))
 		}
 	}
+
 	if ptr := to.Create; ptr != nil {
 		val := int64((*ptr) / time.Second)
 		if mdVal := md.Timeouts.Create; val != mdVal.Value {
 			items = append(items, NewTimeoutDiffItem(mdVal.Line, TimeoutCreate, val))
 		}
 	}
+
 	if ptr := to.Update; ptr != nil {
 		val := int64((*ptr) / time.Second)
 		if mdVal := md.Timeouts.Update; val != mdVal.Value {
@@ -131,8 +138,9 @@ func diffTimeout(r *schema.Resource, md *model.ResourceDoc) (res []Checker) {
 			items = append(items, NewTimeoutDiffItem(mdVal.Line, TimeoutDelete, val))
 		}
 	}
+
 	if len(items) > 0 {
-		res = append(res, timeoutDiff{TimeoutDiff: items})
+		res = append(res, newTimeoutDiff(newCheckBase(md.Timeouts.Read.Line, "", nil), items))
 	}
-	return
+	return res
 }

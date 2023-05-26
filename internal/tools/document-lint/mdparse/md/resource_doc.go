@@ -1,9 +1,7 @@
 package md
 
 import (
-	"bytes"
 	"log"
-	"os"
 	"regexp"
 	"strings"
 
@@ -48,14 +46,14 @@ func getDefaultValue(line string) string {
 	return ""
 }
 
-// ForceNewReg have to stop at dot or end of line to remove this part from document when needed
+// ForceNewReg have to stop at dot or end of line to remove this part from the document when needed
 var ForceNewReg = regexp.MustCompile(` ?Changing.*forces? a [^.]*(\.|$)`)
 
 func isForceNew(line string) bool {
 	return ForceNewReg.MatchString(line)
 }
 
-func ExtractListItem(line string) (field *model.Field) {
+func extractFieldFromLine(line string) (field *model.Field) {
 	field = &model.Field{
 		Content: line,
 	}
@@ -66,7 +64,7 @@ func ExtractListItem(line string) (field *model.Field) {
 	res := fieldReg.FindStringSubmatch(line)
 	if len(res) <= 1 || res[1] == "" {
 		field.Name = util.FirstCodeValue(line) // try to use the first code as name
-		field.FormatErr = true
+		field.FormatErr = "no field name found"
 		return
 	}
 	field.Name = res[1]
@@ -107,7 +105,7 @@ func ExtractListItem(line string) (field *model.Field) {
 		if sepIdx := possibleValueSep(line); sepIdx > 0 {
 			subStr := line[sepIdx:]
 			field.EnumStart = sepIdx
-			// end with . not work in values like `7.2` ....
+			// end with dot may not work in values like `7.2` ....
 			// should be . not in ` mark
 			// Possible values are `a`, `b`, `a.b` and `def`.
 			pointEnd := strings.Index(subStr, ".")
@@ -133,7 +131,7 @@ func ExtractListItem(line string) (field *model.Field) {
 				enums = append(enums, strings.Trim(subStr[start:end], "`'\""))
 				field.EnumEnd = sepIdx + end
 			}
-			// breaks if  there are more than 1 possible value
+			// breaks if there are more than 1 possible value
 			if sepIdx = possibleValueSep(line[sepIdx+1:]); sepIdx >= 0 {
 				field.Skip = true
 			}
@@ -147,7 +145,7 @@ func ExtractListItem(line string) (field *model.Field) {
 	return field
 }
 
-func ExtractBlockNames(line string) (res []string) {
+func extractBlockNames(line string) (res []string) {
 	if blockHeadReg.MatchString(line) {
 		idx := strings.Index(line, "block")
 		names := codeReg.FindAllString(line[:idx], -1)
@@ -180,8 +178,8 @@ func guessBlockProperty(line string) bool {
 	return false
 }
 
-func NewFieldFromLine(line string) *model.Field {
-	f := ExtractListItem(line)
+func newFieldFromLine(line string) *model.Field {
+	f := extractFieldFromLine(line)
 	if guessBlockProperty(line) {
 		// extract real block type
 		f.BlockTypeName = f.Name
@@ -212,146 +210,4 @@ func headPos(line string) (pos model.PosType) {
 		return model.PosOther
 	}
 	return 0
-}
-
-func UnmarshalResourceFromFile(filePath string) (res *model.ResourceDoc, err error) {
-	content, _ := os.ReadFile(filePath)
-	return UnmarshalResource(content)
-}
-
-// UnmarshalResource read line by line and unmarshal to a structure
-func UnmarshalResource(content []byte) (res *model.ResourceDoc, err error) {
-	if len(content) == 0 {
-		return
-	}
-	res = model.NewResourceDoc()
-	content = bytes.TrimSuffix(content, []byte{'\n'})
-	lines := strings.Split(string(content), "\n")
-
-	var curProp model.Properties
-	_ = curProp
-	var curPos = model.PosDefault
-	var sameBlockNames []string
-	var curXPath string
-
-	var missSubBlocks []string
-	removeMissSub := func(name string) {
-		for idx, val := range missSubBlocks {
-			if val == name {
-				missSubBlocks = append(missSubBlocks[:idx], missSubBlocks[idx+1:]...)
-				return
-			}
-		}
-	}
-
-	for lineNum := 1; lineNum <= len(lines); lineNum++ {
-		txt := strings.TrimSpace(lines[lineNum-1])
-		if strings.HasPrefix(txt, "* ") {
-			if curPos == model.PosTimeout {
-				res.SetTimeout(lineNum, txt)
-				continue
-			}
-			if curProp == nil {
-				// skip this property for now, only process arguments and attribute
-				continue
-			}
-			// multiline doc for property
-			startLine := lineNum
-			for lineNum+1 <= len(lines) {
-				nextTxt := lines[lineNum]
-				var shouldBreak bool
-				for _, sep := range []string{"*", "-", "#", "---"} {
-					if strings.HasPrefix(nextTxt, sep) {
-						shouldBreak = true
-						break
-					}
-				}
-				// contains specific prefix or is a block definition line
-				if shouldBreak || blockHeadReg.MatchString(nextTxt) {
-					break
-				}
-				txt += "\n" + nextTxt
-				lineNum++
-			}
-			field := NewFieldFromLine(txt)
-			field.Line = startLine
-			field.Path = field.Name
-			field.Pos = curPos
-			if curXPath != "" {
-				field.Path = curXPath + "." + field.Path
-			}
-			if field.Typ == model.FieldTypeBlock {
-				if sub, ok := res.Blocks[field.BlockTypeName]; ok {
-					field.Subs = sub
-					removeMissSub(field.Name)
-				}
-			}
-			curProp.AddField(field)
-			res.PossibleValues[field.Path] = model.NewPossibleValue(field.PossibleValues(), field)
-		} else if blocks := ExtractBlockNames(txt); len(blocks) > 0 {
-			// only process args or attr for current version
-			// there can be multiple property reference to this block
-			if !curPos.IsArgOrAttr() {
-				continue
-			}
-			sameBlockNames = blocks
-			curProp = model.Properties{}
-			curXPath = "."
-		} else if pos := headPos(txt); txt == "---" || pos > 0 {
-			for _, blockName := range sameBlockNames {
-				if exists, ok := res.Blocks[blockName]; ok {
-					exists.Merge(curProp)
-				} else {
-					res.Blocks[blockName] = curProp
-				}
-				top := res.CurProp(curPos)
-				subBLocks := top.FindAllSubBlock(blockName)
-				if len(subBLocks) == 0 {
-					missSubBlocks = append(missSubBlocks, blockName)
-				}
-				for _, subBlock := range subBLocks {
-					if len(subBlock.Subs) == 0 {
-						subBlock.Subs = curProp
-					}
-				}
-			}
-			sameBlockNames = nil
-			if pos > 0 {
-				curPos = pos
-			}
-			curProp = res.CurProp(curPos)
-			curXPath = ""
-		} else if strings.HasPrefix(txt, "page_title:") {
-			parts := strings.Split(txt, ":")
-			if len(parts) == 3 {
-				res.ResourceName = strings.Trim(parts[2], " \"")
-			} else {
-				if idx := strings.Index(txt, "auzrerm"); idx > 0 {
-					res.ResourceName = strings.Trim(txt[idx:], " \"")
-				}
-			}
-		}
-	}
-	// last try to find the block to link
-	top := res.CurProp(model.PosArgs)
-	for _, blockName := range missSubBlocks {
-		subBlocks := top.FindAllSubBlock(blockName)
-		if len(subBlocks) > 0 {
-			removeMissSub(blockName)
-		}
-		for _, subBlock := range subBlocks {
-			if len(subBlock.Subs) == 0 {
-				subBlock.Subs = res.Blocks[blockName]
-			}
-		}
-
-	}
-	fixed := res.TuneSubBlocks()
-	for _, name := range fixed {
-		removeMissSub(name)
-	}
-	if len(missSubBlocks) > 0 {
-		log.Printf("[doc] %s not block for names %v", res.ResourceName, missSubBlocks)
-	}
-	return res, nil
 }

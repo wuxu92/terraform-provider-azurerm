@@ -47,7 +47,7 @@ func (d *ResourceDiff) ToString() string {
 	for _, item := range d.Diffs() {
 		bs.WriteString(file + item.String() + "\n")
 		// print out fixed result
-		if lineNum := item.Line() - 1; lineNum > 0 && len(lines) > lineNum {
+		if lineNum := item.Line(); lineNum > 0 && len(lines) > lineNum {
 			line := lines[lineNum]
 			if fixed, err := item.Fix(line); err == nil && fixed != "" && fixed != line {
 				bs.WriteString("     " + util.IssueLine(line) + "\n")
@@ -72,7 +72,9 @@ func NewResourceDiff(tf *schema.Resource) *ResourceDiff {
 
 func (r *ResourceDiff) DiffAll() {
 	if r.md == nil {
-		r.md, _ = md.UnmarshalResourceFromFile(r.MDFile)
+		mark := md.MustNewMarkFromFile(r.MDFile)
+		r.md = mark.BuildResourceDoc()
+
 	}
 	r.Diff = checkPossibleValues(r.tf, r.md)
 

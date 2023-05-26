@@ -9,17 +9,29 @@ import (
 
 type formatErr struct {
 	Origin string
+	msg    string
 	checkBase
 }
 
-func newFormatErr(origin string, checkBase checkBase) *formatErr {
-	return &formatErr{Origin: origin, checkBase: checkBase}
+func newFormatErr(origin, msg string, checkBase checkBase) *formatErr {
+	return &formatErr{
+		Origin:    origin,
+		msg:       msg,
+		checkBase: checkBase,
+	}
 }
 
 func (f formatErr) String() string {
-	return fmt.Sprintf("%s should be formatted as: %s.",
+	if strings.Contains(f.msg, "missing block for") {
+		return fmt.Sprintf("%s %s", f.checkBase.Str(), util.IssueLine(f.msg))
+	}
+	if strings.Contains(f.msg, "duplicate") {
+		return fmt.Sprintf("%s %s", f.checkBase.Str(), util.IssueLine(f.msg))
+	}
+	return fmt.Sprintf("%s should be formatted as: %s or '%s'",
 		f.checkBase.Str(),
 		util.FormatCode("* `field` - (Required/Optional) Xxx..."),
+		f.msg,
 	)
 }
 

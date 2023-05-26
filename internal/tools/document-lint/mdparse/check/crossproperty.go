@@ -29,6 +29,8 @@ func crossCheckProperty(r *schema.Resource, md *model.ResourceDoc) (res []Checke
 		subDiff := diffCodeMiss(r.ResourceType, key, f, sub)
 		res = append(res, subDiff...)
 	}
+	// if there is just one miss in doc and on miss in code, maybe a misspelling
+	res = mergeMisspelling(res)
 	return
 }
 
@@ -65,7 +67,14 @@ func diffDocMiss(rt, path string, s *schema2.Schema, f *model.Field) (res []Chec
 
 	if f == nil {
 		if s.Deprecated == "" && !s.Computed && path != "id" {
-			res = append(res, newMissInDoc(path, f))
+			parts := strings.Split(path, ".")
+			name := parts[len(parts)-1]
+			f2 := &model.Field{
+				Name:    name,
+				Path:    path,
+				Content: s.GoString(),
+			}
+			res = append(res, newMissInDoc(path, f2))
 		}
 		return res
 	}
@@ -86,9 +95,9 @@ func diffDocMiss(rt, path string, s *schema2.Schema, f *model.Field) (res []Chec
 			res = append(res, diffDocMiss(rt, path+"."+key, val, subField)...)
 		}
 	default:
-		return
+		return res
 	}
-	return
+	return res
 }
 
 var diffCodeSkip = map[string][]string{
@@ -112,8 +121,8 @@ func diffCodeMiss(rt, path string, f *model.Field, s *schema2.Schema) (res []Che
 		return
 	}
 
-	if f != nil && f.FormatErr {
-		res = append(res, newFormatErr(f.Content, newCheckBase(f.Line, path, f)))
+	if f != nil && f.FormatErr != "" {
+		res = append(res, newFormatErr(f.Content, f.FormatErr, newCheckBase(f.Line, path, f)))
 		return
 	}
 

@@ -1,7 +1,7 @@
 package md
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"strings"
 	"unicode"
@@ -19,15 +19,12 @@ const (
 	ItemHeader2
 	ItemHeader3
 	ItemExample
-	ItemArgument
 	ItemField
 	ItemBlockHead // this is a xxx block supports
 	ItemNote
 	ItemSeparator
-	ItemAttribute
 	ItemPlainText
 	ItemTimeout
-	//ItemBlankBlock
 )
 
 type MarkItem struct {
@@ -59,6 +56,7 @@ func NewMarkItem(fromLine int, content string, typ ItemType) *MarkItem {
 type Block struct {
 	Names    []string // at least one name
 	Of       string   // this is a block of xx Field, only some special blocks have it
+	pos      model.PosType
 	Name     string
 	HeadLine int
 	Fields   []*model.Field
@@ -70,7 +68,7 @@ func (b *Block) asProperties() model.Properties {
 		res := model.Properties{}
 		for _, f := range b.Fields {
 			if _, ok := res[f.Name]; ok {
-				log.Printf("duplicate field in block %s:%s", b.Name, f.Name)
+				f.FormatErr = fmt.Sprintf("duplicate field `%s` in block %s", util.ItalicCode(f.Name), util.Bold(b.Name))
 			}
 			res[f.Name] = f
 		}
@@ -116,25 +114,21 @@ func (m *Mark) addLineOrItem(num int, line string, typ ItemType) {
 	}
 }
 
-func (m *Mark) addLine(num int, line string) {
-	m.lastItem().addLine(num, line)
-}
-
-func mustNewMarkFromFile(file string) *Mark {
+func MustNewMarkFromFile(file string) *Mark {
 	bs, err := os.ReadFile(file)
 	if err != nil {
 		panic(err)
 	}
-	m := newMarkFromString(string(bs))
-	m.FilePath = file
+	m := newMarkFromString(string(bs), file)
 	return m
 }
 
-func newMarkFromString(content string) *Mark {
+func newMarkFromString(content string, filepath string) *Mark {
 	lines := strings.Split(content, "\n")
 	result := &Mark{
-		content: &content,
-		Fields:  map[string]*model.Field{},
+		content:  &content,
+		FilePath: filepath,
+		Fields:   map[string]*model.Field{},
 	}
 	for idx, line := range lines {
 		// if line starts with #, * or A Block supports, it is a special item
@@ -223,7 +217,7 @@ func (m *Mark) buildField() {
 				continue
 			}
 
-			f := NewFieldFromLine(content)
+			f := newFieldFromLine(content)
 			f.Line = item.FromLine
 			f.Pos = pos
 			item.Field = f
@@ -244,15 +238,21 @@ func (m *Mark) buildField() {
 			if inBlock {
 				m.addBlock(block)
 			}
-			names := ExtractBlockNames(item.lines[0])
+			names := extractBlockNames(item.lines[0])
+			// of/within block
+			var of string
+			for _, sep := range []string{" of ", " within "} {
+				if idx := strings.Index(content, sep); idx > 0 {
+					of = util.FirstCodeValue(content[idx:])
+				}
+			}
+
 			block = Block{
 				Names:    names,
 				Name:     names[0],
+				Of:       of,
+				pos:      pos,
 				HeadLine: item.FromLine,
-			}
-			// an of exists
-			if ofIdx := strings.Index(content, "of"); ofIdx > 0 {
-				block.Of = util.FirstCodeValue(content[ofIdx+2:])
 			}
 			inBlock = true
 		case ItemSeparator:
@@ -261,13 +261,14 @@ func (m *Mark) buildField() {
 			}
 			inBlock = false
 		case ItemHeader2, ItemHeader3:
-			if strings.Contains(content, "Argument") {
+			switch {
+			case strings.Contains(content, "Argument"):
 				pos = model.PosArgs
-			} else if strings.Contains(content, "Attributes") {
+			case strings.Contains(content, "Attributes"):
 				pos = model.PosAttr
-			} else if strings.Contains(content, "Timeout") {
+			case strings.Contains(content, "Timeout"):
 				pos = model.PosTimeout
-			} else if strings.Contains(content, "Import") {
+			case strings.Contains(content, "Import"):
 				pos = model.PosImport
 			}
 
@@ -279,50 +280,71 @@ func (m *Mark) buildField() {
 	}
 }
 
-func (m *Mark) blockOfName(name string) *Block {
+// it may be an Argument block or an Attribute block
+func (m *Mark) blockOfName(name string, parent string, pos model.PosType) (b *Block, msg string) {
 	var res []Block
 	for _, b := range m.Blocks {
+		if b.pos != pos {
+			continue
+		}
 		for _, n2 := range b.Names {
 			if n2 == name {
 				res = append(res, b)
 			}
 		}
 	}
+
 	if len(res) == 0 {
-		return nil
+		return nil, ""
 	}
+
+	if parent != "" {
+		for _, item := range res {
+			if item.Of == parent {
+				return &item, ""
+			}
+		}
+	}
+
 	if len(res) > 1 {
-		log.Printf("duplicate block exists for %s.%s", m.ResourceType, name)
+		msg = fmt.Sprintf("duplicate block exists as name `%s`", util.Blue(name))
 	}
-	return &res[0]
+	return &res[0], msg
 }
 
 // buildStruct build struct of blocks
 func (m *Mark) buildStruct() {
-	fillField := func(f *model.Field) {
+	fillField := func(f *model.Field, parent string) {
 		if f.Typ == model.FieldTypeBlock {
 			// find block
-			if b := m.blockOfName(f.Name); b != nil {
+			if b, msg := m.blockOfName(f.BlockTypeName, parent, f.Pos); b != nil {
 				f.Subs = b.asProperties()
+				if msg != "" {
+					f.FormatErr = msg
+				}
 			} else {
-				log.Printf("missing block for field %s.%s", m.ResourceType, f.Name)
+				if b2, _ := m.blockOfName(f.Name, parent, f.Pos); b2 != nil {
+					f.FormatErr = fmt.Sprintf("misspell of name from `%s` to `%s`", f.Name, f.BlockTypeName)
+				} else {
+					f.FormatErr = fmt.Sprintf("missing block for field %s", util.ItalicCode(f.Name))
+				}
 			}
 		}
 	}
 
 	for _, f := range m.Fields {
-		fillField(f)
+		fillField(f, "")
 	}
 
 	// build for block fields
 	for _, b := range m.Blocks {
 		for _, f := range b.Fields {
-			fillField(f)
+			fillField(f, b.Name)
 		}
 	}
 }
 
-func (m *Mark) buildResourceDoc() *model.ResourceDoc {
+func (m *Mark) BuildResourceDoc() *model.ResourceDoc {
 	var doc = model.NewResourceDoc()
 	for _, f := range m.Fields {
 		if f.Pos == model.PosArgs {
@@ -331,10 +353,13 @@ func (m *Mark) buildResourceDoc() *model.ResourceDoc {
 			doc.Attr.AddField(f)
 		}
 	}
+
 	doc.ResourceName = m.ResourceType
 	for _, item := range m.Items {
 		if item.Type == ItemExample {
 			doc.ExampleHCL = item.content()
+		} else if item.Type == ItemTimeout {
+			doc.SetTimeout(item.FromLine, item.content())
 		}
 	}
 

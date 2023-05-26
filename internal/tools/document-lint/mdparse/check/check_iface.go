@@ -34,7 +34,7 @@ func (c checkBase) ShouldSkip() bool {
 }
 
 func (i checkBase) Str() string {
-	return fmt.Sprintf("%d %s", i.Line(), util.Bold(i.Key()))
+	return fmt.Sprintf("%d %s", i.Line()+1, util.Bold(i.Key()))
 }
 
 func (i checkBase) Line() int {

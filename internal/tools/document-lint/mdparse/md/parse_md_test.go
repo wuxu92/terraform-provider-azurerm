@@ -24,11 +24,11 @@ func Test_unmarshalFile(t *testing.T) {
 	}
 	for _, arg := range args {
 		file := filepath.Join(testDir, arg.file)
-		m := mustNewMarkFromFile(file)
+		m := MustNewMarkFromFile(file)
 		if gotItems := len(m.Items); gotItems != arg.itemNum {
 			t.Fatalf("%s expect item num; %d, got: %d", arg.file, gotItems, arg.itemNum)
 		}
-		doc := m.buildResourceDoc()
+		doc := m.BuildResourceDoc()
 		if gotArgs := len(doc.Args); gotArgs != arg.argsNum {
 			t.Fatalf("`%s` expect arg num: %d, got: %d", arg.file, gotArgs, arg.argsNum)
 		}
