@@ -246,6 +246,21 @@ func TestAccRoleAssignment_subscriptionScoped(t *testing.T) {
 	})
 }
 
+func TestAccRoleAssignment_userIdentityScope(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_role_assignment", "test")
+
+	r := RoleAssignmentResource{}
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.userIdentityScope(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep("skip_service_principal_aad_check"),
+	})
+}
+
 func (r RoleAssignmentResource) Exists(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
 	id, err := parse.RoleAssignmentID(state.ID)
 	if err != nil {
@@ -335,6 +350,44 @@ resource "azurerm_role_assignment" "test" {
   principal_id         = data.azurerm_client_config.test.object_id
 }
 `, data.RandomInteger, data.Locations.Primary, data.RandomString, id)
+}
+
+func (RoleAssignmentResource) userIdentityScope(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+data "azurerm_client_config" "test" {
+}
+
+data "azurerm_subscription" "primary" {
+}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-role-assigment-%[1]d"
+  location = "%[2]s"
+}
+
+resource "azurerm_user_assigned_identity" "test" {
+  location            = azurerm_resource_group.test.location
+  name                = "acctestuai-%[1]d"
+  resource_group_name = azurerm_resource_group.test.name
+}
+
+resource "azurerm_role_assignment" "mgmt" {
+  scope                = data.azurerm_subscription.primary.id
+  role_definition_name = "Contributor"
+  principal_id         = azurerm_user_assigned_identity.test.principal_id
+}
+
+resource "azurerm_role_assignment" "test" {
+  scope                = azurerm_user_assigned_identity.test.id
+  principal_id         = data.azurerm_client_config.test.object_id
+  role_definition_name = "Managed Identity Operator"
+  // role_definition_name = "Monitoring Reader"
+}
+`, data.RandomInteger, data.Locations.Primary)
 }
 
 func (RoleAssignmentResource) requiresImportConfig(id string) string {

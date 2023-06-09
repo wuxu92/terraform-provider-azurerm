@@ -69,6 +69,14 @@ func resourceArmRoleAssignment() *pluginsdk.Resource {
 					commonids.ValidateResourceGroupID,
 					azure.ValidateResourceID,
 				),
+				// DiffSuppressFunc: func(k, oldValue, newValue string, d *schema.ResourceData) bool {
+				// 	// suppress case-sensitive if it's a user assigned_identity id
+				// 	// resolve: https://github.com/hashicorp/terraform-provider-azurerm/issues/22076
+				// 	if _, err := commonids.ParseUserAssignedIdentityIDInsensitively(newValue); err == nil {
+				// 		return strings.EqualFold(oldValue, newValue)
+				// 	}
+				// 	return false
+				// },
 			},
 
 			"role_definition_id": {
