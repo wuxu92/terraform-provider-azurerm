@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/automation/2022-08-08/dscnodeconfiguration"
@@ -67,6 +68,11 @@ func resourceAutomationDscNodeConfiguration() *pluginsdk.Resource {
 				Type:     pluginsdk.TypeString,
 				Computed: true,
 			},
+
+			"increment_build_enabled": {
+				Type:     pluginsdk.TypeBool,
+				Optional: true,
+			},
 		},
 	}
 }
@@ -112,6 +118,7 @@ func resourceAutomationDscNodeConfigurationCreateUpdate(d *pluginsdk.ResourceDat
 			Configuration: dscnodeconfiguration.DscConfigurationAssociationProperty{
 				Name: utils.String(configurationName),
 			},
+			IncrementNodeConfigurationBuild: pointer.To(d.Get("increment_build_enabled").(bool)),
 		},
 		Name: utils.String(id.NodeConfigurationName),
 	}
@@ -157,6 +164,7 @@ func resourceAutomationDscNodeConfigurationRead(d *pluginsdk.ResourceData, meta 
 				configurationName = *props.Configuration.Name
 			}
 			d.Set("configuration_name", configurationName)
+			d.Set("increment_build_enabled", props.IncrementNodeConfigurationBuild)
 		}
 	}
 

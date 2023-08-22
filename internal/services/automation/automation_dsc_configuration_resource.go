@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/automation/2022-08-08/dscconfiguration"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/azure"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
@@ -88,6 +89,46 @@ func resourceAutomationDscConfiguration() *pluginsdk.Resource {
 				Computed: true,
 			},
 
+			"parameter": {
+				Type:     pluginsdk.TypeSet,
+				Optional: true,
+				Set: func(i interface{}) int {
+					return pluginsdk.HashString(i.(map[string]interface{})["name"])
+				},
+				Elem: &pluginsdk.Resource{
+					Schema: map[string]*schema.Schema{
+						"name": {
+							Required:     true,
+							Type:         pluginsdk.TypeString,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+
+						"default_value": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+
+						"is_mandatory": {
+							Type:     pluginsdk.TypeBool,
+							Optional: true,
+						},
+
+						"position": {
+							Type:         pluginsdk.TypeInt,
+							Optional:     true,
+							ValidateFunc: validation.IntAtLeast(0),
+						},
+
+						"type": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ValidateFunc: validation.StringIsNotEmpty,
+						},
+					},
+				},
+			},
+
 			"tags": tags.Schema(),
 		},
 	}
@@ -129,6 +170,7 @@ func resourceAutomationDscConfigurationCreateUpdate(d *pluginsdk.ResourceData, m
 				Type:  pointer.To(dscconfiguration.ContentSourceTypeEmbeddedContent),
 				Value: utils.String(contentEmbedded),
 			},
+			Parameters: expandDSCConfigurationParameters(d.Get("parameter").(*schema.Set).List()),
 		},
 		Location: utils.String(location),
 		Tags:     pointer.To(expandStringInterfaceMap(d.Get("tags").(map[string]interface{}))),
@@ -176,6 +218,7 @@ func resourceAutomationDscConfigurationRead(d *pluginsdk.ResourceData, meta inte
 			d.Set("log_verbose", props.LogVerbose)
 			d.Set("description", props.Description)
 			d.Set("state", string(pointer.From(props.State)))
+			d.Set("parameter", flattenDSCConfigurationParameters(props.Parameters))
 		}
 
 		if model.Tags != nil {
@@ -227,4 +270,42 @@ func resourceAutomationDscConfigurationDelete(d *pluginsdk.ResourceData, meta in
 	}
 
 	return nil
+}
+
+func expandDSCConfigurationParameters(list []interface{}) *map[string]dscconfiguration.DscConfigurationParameter {
+	if len(list) == 0 {
+		return nil
+	}
+	res := map[string]dscconfiguration.DscConfigurationParameter{}
+	for _, item := range list {
+		if v, ok := item.(map[string]interface{}); ok {
+			name := v["name"].(string)
+			res[name] = dscconfiguration.DscConfigurationParameter{
+				DefaultValue: pointer.To(v["default_value"].(string)),
+				IsMandatory:  pointer.To(v["is_mandatory"].(bool)),
+				Position:     pointer.To(int64(v["position"].(int))),
+				Type:         pointer.To(v["type"].(string)),
+			}
+		}
+	}
+
+	return &res
+}
+
+func flattenDSCConfigurationParameters(parameters *map[string]dscconfiguration.DscConfigurationParameter) interface{} {
+	if parameters == nil {
+		return []interface{}{}
+	}
+
+	res := make([]interface{}, 0, len(*parameters))
+	for name, param := range *parameters {
+		res = append(res, map[string]interface{}{
+			"name":          name,
+			"default_value": param.DefaultValue,
+			"is_mandatory":  param.IsMandatory,
+			"position":      param.Position,
+			"type":          param.Type,
+		})
+	}
+	return &res
 }

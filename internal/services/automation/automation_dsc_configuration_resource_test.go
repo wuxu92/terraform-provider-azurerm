@@ -160,6 +160,14 @@ resource "azurerm_automation_dsc_configuration" "test" {
   tags = {
     ENV = "prod"
   }
+
+  parameter {
+    name          = "foo"
+    default_value = "bar"
+    is_mandatory  = false
+    type          = "string"
+    position      = 0
+  }
 }
 `, data.RandomInteger, data.Locations.Primary, data.RandomInteger)
 }
