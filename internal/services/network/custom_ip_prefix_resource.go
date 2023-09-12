@@ -663,6 +663,10 @@ func (r CustomIpPrefixResource) provisioningStateRefreshFunc(ctx context.Context
 			return nil, "", fmt.Errorf("polling for %s: %+v", id.String(), err)
 		}
 
+		if res.ProvisioningState == network.ProvisioningStateFailed {
+			return nil, "", fmt.Errorf("polling for %s: provisioning state was %q, msg: %q", id.String(), res.ProvisioningState, res.FailedReason)
+		}
+
 		return res, string(res.ProvisioningState), nil
 	}
 }
