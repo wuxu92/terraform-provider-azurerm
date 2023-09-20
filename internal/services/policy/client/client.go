@@ -6,34 +6,44 @@ package client
 import (
 	"fmt"
 
-	"github.com/Azure/azure-sdk-for-go/services/preview/resources/mgmt/2021-06-01-preview/policy" // nolint: staticcheck
+	// "github.com/Azure/azure-sdk-for-go/services/preview/resources/mgmt/2021-06-01-preview/policy"
+
 	"github.com/hashicorp/go-azure-sdk/resource-manager/guestconfiguration/2020-06-25/guestconfigurationassignments"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/policyinsights/2021-10-01/remediations"
-	assignments "github.com/hashicorp/go-azure-sdk/resource-manager/resources/2022-06-01/policyassignments"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2022-07-01-preview/policyexemptions" // nolint: staticcheck
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policyassignments"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policydefinitions"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policysetdefinitions"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/common"
 )
 
 type Client struct {
-	AssignmentsClient                   *assignments.PolicyAssignmentsClient
-	DefinitionsClient                   *policy.DefinitionsClient
-	ExemptionsClient                    *policy.ExemptionsClient
+	AssignmentsClient                   *policyassignments.PolicyAssignmentsClient
+	DefinitionsClient                   *policydefinitions.PolicyDefinitionsClient
+	ExemptionsClient                    *policyexemptions.PolicyExemptionsClient
 	GuestConfigurationAssignmentsClient *guestconfigurationassignments.GuestConfigurationAssignmentsClient
 	RemediationsClient                  *remediations.RemediationsClient
-	SetDefinitionsClient                *policy.SetDefinitionsClient
+	SetDefinitionsClient                *policysetdefinitions.PolicySetDefinitionsClient
 }
 
 func NewClient(o *common.ClientOptions) (*Client, error) {
-	assignmentsClient, err := assignments.NewPolicyAssignmentsClientWithBaseURI(o.Environment.ResourceManager)
+	assignmentsClient, err := policyassignments.NewPolicyAssignmentsClientWithBaseURI(o.Environment.ResourceManager)
 	if err != nil {
 		return nil, fmt.Errorf("building PolicyAssignments client: %+v", err)
 	}
 	o.Configure(assignmentsClient.Client, o.Authorizers.ResourceManager)
 
-	definitionsClient := policy.NewDefinitionsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
-	o.ConfigureClient(&definitionsClient.Client, o.ResourceManagerAuthorizer)
+	definitionsClient, err := policydefinitions.NewPolicyDefinitionsClientWithBaseURI(o.Environment.ResourceManager)
+	if err != nil {
+		return nil, fmt.Errorf("building PolicyDefinitions client: %+v", err)
+	}
+	o.Configure(definitionsClient.Client, o.Authorizers.ResourceManager)
 
-	exemptionsClient := policy.NewExemptionsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
-	o.ConfigureClient(&exemptionsClient.Client, o.ResourceManagerAuthorizer)
+	exemptionsClient, err := policyexemptions.NewPolicyExemptionsClientWithBaseURI(o.Environment.ResourceManager)
+	if err != nil {
+		return nil, fmt.Errorf("building PolicyExemptions client: %+v", err)
+	}
+	o.Configure(exemptionsClient.Client, o.Authorizers.ResourceManager)
 
 	guestConfigurationAssignmentsClient, err := guestconfigurationassignments.NewGuestConfigurationAssignmentsClientWithBaseURI(o.Environment.ResourceManager)
 	if err != nil {
@@ -47,15 +57,18 @@ func NewClient(o *common.ClientOptions) (*Client, error) {
 	}
 	o.Configure(remediationsClient.Client, o.Authorizers.ResourceManager)
 
-	setDefinitionsClient := policy.NewSetDefinitionsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
-	o.ConfigureClient(&setDefinitionsClient.Client, o.ResourceManagerAuthorizer)
+	setDefinitionsClient, err := policysetdefinitions.NewPolicySetDefinitionsClientWithBaseURI(o.Environment.ResourceManager)
+	if err != nil {
+		return nil, fmt.Errorf("building PolicySetDefinitions client: %+v", err)
+	}
+	o.Configure(setDefinitionsClient.Client, o.Authorizers.ResourceManager)
 
 	return &Client{
 		AssignmentsClient:                   assignmentsClient,
-		DefinitionsClient:                   &definitionsClient,
-		ExemptionsClient:                    &exemptionsClient,
+		DefinitionsClient:                   definitionsClient,
+		ExemptionsClient:                    exemptionsClient,
 		GuestConfigurationAssignmentsClient: guestConfigurationAssignmentsClient,
 		RemediationsClient:                  remediationsClient,
-		SetDefinitionsClient:                &setDefinitionsClient,
+		SetDefinitionsClient:                setDefinitionsClient,
 	}, nil
 }

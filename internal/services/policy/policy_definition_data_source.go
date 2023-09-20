@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/services/preview/resources/mgmt/2021-06-01-preview/policy" // nolint: staticcheck
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policydefinitions"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/services/policy/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
@@ -108,56 +108,67 @@ func policyDefinitionReadFunc(builtInOnly bool) func(d *pluginsdk.ResourceData, 
 			managementGroupName = v.(string)
 		}
 
-		var policyDefinition policy.Definition
+		subscriptionID := meta.(*clients.Client).Account.SubscriptionId
+		var policyDefinition policydefinitions.PolicyDefinition
 		var err error
 		// one of display_name and name must be non-empty, this is guaranteed by schema
 		if displayName != "" {
-			policyDefinition, err = getPolicyDefinitionByDisplayName(ctx, client, displayName, managementGroupName, builtInOnly)
+			policyDefinition, err = getPolicyDefinitionByDisplayName(ctx, client, subscriptionID, displayName, managementGroupName, builtInOnly)
 			if err != nil {
 				return fmt.Errorf("reading Policy Definition (Display Name %q): %+v", displayName, err)
 			}
 		}
 		if name != "" {
 			if builtInOnly && managementGroupName == "" {
-				policyDefinition, err = client.GetBuiltIn(ctx, name)
+				policyDefinition, err = getBuiltInPolicyDefinitionByName(ctx, client, name)
 			} else {
-				policyDefinition, err = getPolicyDefinitionByName(ctx, client, name, managementGroupName)
+				var getResponse policydefinitions.GetOperationResponse
+				getResponse, err = getPolicyDefinitionByName(ctx, client, name, managementGroupName, subscriptionID)
+				policyDefinition = pointer.From(getResponse.Model)
 			}
 			if err != nil {
 				return fmt.Errorf("reading Policy Definition %q: %+v", name, err)
 			}
 		}
 
-		id, err := parse.PolicyDefinitionID(*policyDefinition.ID)
+		if policyDefinition.Id == nil {
+			return fmt.Errorf("reading policy definition id as nil")
+		}
+
+		id, err := policydefinitions.ParseProviderPolicyDefinitionID(*policyDefinition.Id)
 		if err != nil {
-			return fmt.Errorf("parsing Policy Definition %q: %+v", *policyDefinition.ID, err)
+			return fmt.Errorf("parsing Policy Definition %q: %+v", *policyDefinition.Id, err)
 		}
 
-		d.SetId(id.Id)
+		d.SetId(id.ID())
 		d.Set("name", policyDefinition.Name)
-		d.Set("display_name", policyDefinition.DisplayName)
-		d.Set("description", policyDefinition.Description)
 		d.Set("type", policyDefinition.Type)
-		d.Set("policy_type", policyDefinition.PolicyType)
-		d.Set("mode", policyDefinition.Mode)
 
-		policyRule := policyDefinition.PolicyRule.(map[string]interface{})
-		if policyRuleStr := flattenJSON(policyRule); policyRuleStr != "" {
-			d.Set("policy_rule", policyRuleStr)
-			roleIDs, _ := getPolicyRoleDefinitionIDs(policyRuleStr)
-			d.Set("role_definition_ids", roleIDs)
-		} else {
-			return fmt.Errorf("flattening Policy Definition Rule %q: %+v", name, err)
-		}
+		if prop := policyDefinition.Properties; prop != nil {
+			d.Set("display_name", prop.DisplayName)
+			d.Set("description", prop.Description)
+			d.Set("policy_type", prop.PolicyType)
+			d.Set("mode", prop.Mode)
+			if rule := prop.PolicyRule; rule != nil {
+				policyRule := (*rule).(map[string]interface{})
+				if policyRuleStr := flattenJSON(policyRule); policyRuleStr != "" {
+					d.Set("policy_rule", policyRuleStr)
+					roleIDs, _ := getPolicyRoleDefinitionIDs(policyRuleStr)
+					d.Set("role_definition_ids", roleIDs)
+				} else {
+					return fmt.Errorf("flattening Policy Definition Rule %q: %+v", name, err)
+				}
+			}
 
-		if metadataStr := flattenJSON(policyDefinition.Metadata); metadataStr != "" {
-			d.Set("metadata", metadataStr)
-		}
+			if metadataStr := flattenJSON(prop.Metadata); metadataStr != "" {
+				d.Set("metadata", metadataStr)
+			}
 
-		if parametersStr, err := flattenParameterDefinitionsValueToString(policyDefinition.Parameters); err == nil {
-			d.Set("parameters", parametersStr)
-		} else {
-			return fmt.Errorf("failed to flatten Policy Parameters %q: %+v", name, err)
+			if parametersStr, err := flattenParameterDefinitionsValueToString(pointer.From(prop.Parameters)); err == nil {
+				d.Set("parameters", parametersStr)
+			} else {
+				return fmt.Errorf("failed to flatten Policy Parameters %q: %+v", name, err)
+			}
 		}
 
 		return nil

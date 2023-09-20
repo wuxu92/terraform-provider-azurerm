@@ -9,128 +9,181 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Azure/azure-sdk-for-go/services/preview/resources/mgmt/2021-06-01-preview/policy" // nolint: staticcheck
+	"github.com/hashicorp/go-azure-helpers/lang/response"
+	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	assignments "github.com/hashicorp/go-azure-sdk/resource-manager/resources/2022-06-01/policyassignments"
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policydefinitions"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policysetdefinitions"
 )
 
-func getPolicyDefinitionByDisplayName(ctx context.Context, client *policy.DefinitionsClient, displayName, managementGroupName string,
-	builtInOnly bool) (policy.Definition, error) {
-	var policyDefinitions policy.DefinitionListResultIterator
+func getPolicyDefinitionByDisplayName(ctx context.Context, client *policydefinitions.PolicyDefinitionsClient, subscriptionID, displayName, managementGroupName string,
+	builtInOnly bool) (policydefinitions.PolicyDefinition, error) {
+	var policyDefinitions []policydefinitions.PolicyDefinition
 	var err error
 
 	if managementGroupName != "" {
-		policyDefinitions, err = client.ListByManagementGroupComplete(ctx, managementGroupName, "", nil)
+		id := commonids.NewManagementGroupID(managementGroupName)
+		var result policydefinitions.ListByManagementGroupCompleteResult
+		result, err = client.ListByManagementGroupComplete(ctx, id, policydefinitions.ListByManagementGroupOperationOptions{})
+		policyDefinitions = result.Items
 	} else {
 		if builtInOnly {
-			policyDefinitions, err = client.ListBuiltInComplete(ctx, "", nil)
+			var result policydefinitions.ListBuiltInCompleteResult
+			result, err = client.ListBuiltInComplete(ctx, policydefinitions.ListBuiltInOperationOptions{})
+			policyDefinitions = result.Items
 		} else {
-			policyDefinitions, err = client.ListComplete(ctx, "", nil)
+			var result policydefinitions.ListCompleteResult
+			result, err = client.ListComplete(ctx, commonids.NewSubscriptionID(subscriptionID), policydefinitions.ListOperationOptions{})
+			policyDefinitions = result.Items
 		}
 	}
 	if err != nil {
-		return policy.Definition{}, fmt.Errorf("loading Policy Definition List: %+v", err)
+		return policydefinitions.PolicyDefinition{}, fmt.Errorf("loading Policy Definition List: %+v", err)
 	}
 
-	var results []policy.Definition
-	for policyDefinitions.NotDone() {
-		def := policyDefinitions.Value()
-		if def.DisplayName != nil && *def.DisplayName == displayName && def.ID != nil {
-			results = append(results, def)
-		}
-
-		if err := policyDefinitions.NextWithContext(ctx); err != nil {
-			return policy.Definition{}, fmt.Errorf("loading Policy Definition List: %s", err)
-		}
-	}
+	// var results []policy.Definition
+	// for policyDefinitions.NotDone() {
+	// 	def := policyDefinitions.Value()
+	// 	if def.DisplayName != nil && *def.DisplayName == displayName && def.ID != nil {
+	// 		results = append(results, def)
+	// 	}
+	//
+	// 	if err := policyDefinitions.NextWithContext(ctx); err != nil {
+	// 		return policy.Definition{}, fmt.Errorf("loading Policy Definition List: %s", err)
+	// 	}
+	// }
 
 	// we found none
-	if len(results) == 0 {
-		return policy.Definition{}, fmt.Errorf("loading Policy Definition List: could not find policy '%s'. has the policies name changed? list available with `az policy definition list`", displayName)
+	if len(policyDefinitions) == 0 {
+		return policydefinitions.PolicyDefinition{}, fmt.Errorf("loading Policy Definition List: could not find policy '%s'. has the policies name changed? list available with `az policy definition list`", displayName)
 	}
 
 	// we found more than one
-	if len(results) > 1 {
-		return policy.Definition{}, fmt.Errorf("loading Policy Definition List: found more than one (%d) policy '%s'", len(results), displayName)
+	if len(policyDefinitions) > 1 {
+		return policydefinitions.PolicyDefinition{}, fmt.Errorf("loading Policy Definition List: found more than one (%d) policy '%s'", len(policyDefinitions), displayName)
 	}
 
-	return results[0], nil
+	return policyDefinitions[0], nil
+}
+func getBuiltInPolicyDefinitionByName(ctx context.Context, client *policydefinitions.PolicyDefinitionsClient, name string) (res policydefinitions.PolicyDefinition, err error) {
+	builtIn, err := client.GetBuiltIn(ctx, policydefinitions.NewPolicyDefinitionID(name))
+	if err == nil && builtIn.Model != nil {
+		return *builtIn.Model, nil
+	}
+	return policydefinitions.PolicyDefinition{}, err
 }
 
-func getPolicyDefinitionByName(ctx context.Context, client *policy.DefinitionsClient, name, managementGroupName string) (res policy.Definition, err error) {
+func getPolicyDefinitionByName(ctx context.Context, client *policydefinitions.PolicyDefinitionsClient,
+	name, managementGroupName, subscriptionID string) (res policydefinitions.GetOperationResponse, err error) {
+
 	if managementGroupName == "" {
-		res, err = client.GetBuiltIn(ctx, name)
-		if utils.ResponseWasNotFound(res.Response) {
-			res, err = client.Get(ctx, name)
+		var builtIn policydefinitions.GetBuiltInOperationResponse
+		builtIn, err = client.GetBuiltIn(ctx, policydefinitions.NewPolicyDefinitionID(name))
+		if err == nil && builtIn.Model != nil {
+			res.HttpResponse = builtIn.HttpResponse
+			res.OData = builtIn.OData
+			res.Model = builtIn.Model
+			return res, nil
+		}
+
+		if response.WasNotFound(builtIn.HttpResponse) {
+			var getResult policydefinitions.GetOperationResponse
+			getResult, err = client.Get(ctx, policydefinitions.NewProviderPolicyDefinitionID(subscriptionID, name))
+			if err == nil && getResult.Model != nil {
+				return getResult, nil
+			}
 		}
 	} else {
-		res, err = client.GetAtManagementGroup(ctx, name, managementGroupName)
+		var result policydefinitions.GetAtManagementGroupOperationResponse
+		result, err = client.GetAtManagementGroup(ctx, policydefinitions.NewProviders2PolicyDefinitionID(managementGroupName, name))
+		if err == nil && result.Model != nil {
+			res.HttpResponse = result.HttpResponse
+			res.OData = result.OData
+			res.Model = result.Model
+			return res, nil
+		}
 	}
 
 	return res, err
 }
 
-func getPolicySetDefinitionByName(ctx context.Context, client *policy.SetDefinitionsClient, name, managementGroupID string) (res policy.SetDefinition, err error) {
+func getPolicySetDefinitionByName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, name, managementGroupID, subscriptionID string) (res policysetdefinitions.PolicySetDefinition, err error) {
 	if managementGroupID == "" {
-		res, err = client.GetBuiltIn(ctx, name)
-		if utils.ResponseWasNotFound(res.Response) {
-			res, err = client.Get(ctx, name)
+		var builtIn policysetdefinitions.GetBuiltInOperationResponse
+		builtIn, err = client.GetBuiltIn(ctx, policysetdefinitions.NewPolicySetDefinitionID(name))
+		if err == nil && builtIn.Model != nil {
+			return *builtIn.Model, nil
+		}
+		if response.WasNotFound(builtIn.HttpResponse) {
+			var result policysetdefinitions.GetOperationResponse
+			result, err = client.Get(ctx, policysetdefinitions.NewProviderPolicySetDefinitionID(subscriptionID, name))
+			if err == nil && result.Model != nil {
+				return *result.Model, nil
+			}
 		}
 	} else {
-		res, err = client.GetAtManagementGroup(ctx, name, managementGroupID)
+		var result policysetdefinitions.GetAtManagementGroupOperationResponse
+		result, err = client.GetAtManagementGroup(ctx, policysetdefinitions.NewProviders2PolicySetDefinitionID(managementGroupID, name))
+		if err == nil && result.Model != nil {
+			return *result.Model, nil
+		}
 	}
 
-	return res, err
+	return policysetdefinitions.PolicySetDefinition{}, err
 }
 
-func getPolicySetDefinitionByDisplayName(ctx context.Context, client *policy.SetDefinitionsClient, displayName, managementGroupID string) (policy.SetDefinition, error) {
-	var setDefinitions policy.SetDefinitionListResultIterator
+func getPolicySetDefinitionByDisplayName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, displayName, managementGroupID, subscriptionID string) (policysetdefinitions.PolicySetDefinition, error) {
+	var setDefinitions []policysetdefinitions.PolicySetDefinition
 	var err error
 
 	if managementGroupID != "" {
-		setDefinitions, err = client.ListByManagementGroupComplete(ctx, managementGroupID, "", nil)
+		var result policysetdefinitions.ListByManagementGroupCompleteResult
+		result, err = client.ListByManagementGroupComplete(ctx, commonids.NewManagementGroupID(managementGroupID), policysetdefinitions.ListByManagementGroupOperationOptions{})
+		setDefinitions = result.Items
 	} else {
-		setDefinitions, err = client.ListComplete(ctx, "", nil)
+		var result policysetdefinitions.ListCompleteResult
+		result, err = client.ListComplete(ctx, commonids.NewSubscriptionID(subscriptionID), policysetdefinitions.ListOperationOptions{})
+		setDefinitions = result.Items
 	}
 	if err != nil {
-		return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %+v", err)
+		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %+v", err)
 	}
 
-	var results []policy.SetDefinition
-	for setDefinitions.NotDone() {
-		def := setDefinitions.Value()
-		if def.DisplayName != nil && *def.DisplayName == displayName && def.ID != nil {
-			results = append(results, def)
-		}
-
-		if err := setDefinitions.NextWithContext(ctx); err != nil {
-			return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %s", err)
-		}
-	}
+	// var results []policy.SetDefinition
+	// for setDefinitions.NotDone() {
+	// 	def := setDefinitions.Value()
+	// 	if def.DisplayName != nil && *def.DisplayName == displayName && def.ID != nil {
+	// 		results = append(results, def)
+	// 	}
+	//
+	// 	if err := setDefinitions.NextWithContext(ctx); err != nil {
+	// 		return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %s", err)
+	// 	}
+	// }
 
 	// throw error when we found none
-	if len(results) == 0 {
-		return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: could not find policy '%s'", displayName)
+	if len(setDefinitions) == 0 {
+		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: could not find policy '%s'", displayName)
 	}
 
 	// throw error when we found more than one
-	if len(results) > 1 {
-		return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: found more than one policy set definition '%s'", displayName)
+	if len(setDefinitions) > 1 {
+		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: found more than one policy set definition '%s'", displayName)
 	}
 
-	return results[0], nil
+	return setDefinitions[0], nil
 }
 
-func expandParameterDefinitionsValueFromString(jsonString string) (map[string]*policy.ParameterDefinitionsValue, error) {
-	var result map[string]*policy.ParameterDefinitionsValue
+func expandParameterDefinitionsValueFromString(jsonString string) (map[string]policydefinitions.ParameterDefinitionsValue, error) {
+	var result map[string]policydefinitions.ParameterDefinitionsValue
 
 	err := json.Unmarshal([]byte(jsonString), &result)
 
 	return result, err
 }
 
-func flattenParameterDefinitionsValueToString(input map[string]*policy.ParameterDefinitionsValue) (string, error) {
-	if len(input) == 0 {
+func flattenParameterDefinitionsValueToString(input *map[string]policydefinitions.ParameterDefinitionsValue) (string, error) {
+	if input == nil || len(*input) == 0 {
 		return "", nil
 	}
 
@@ -155,7 +208,7 @@ func expandParameterValuesValueFromString(jsonString string) (map[string]assignm
 	return result, err
 }
 
-func flattenParameterValuesValueToString(input map[string]*policy.ParameterValuesValue) (string, error) {
+func flattenParameterValuesValueToString(input map[string]*policysetdefinitions.ParameterValuesValue) (string, error) {
 	if input == nil {
 		return "", nil
 	}

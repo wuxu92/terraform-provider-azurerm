@@ -86,4 +86,8 @@ require (
 	software.sslmate.com/src/go-pkcs12 v0.2.1 // indirect
 )
 
+replace (
+	github.com/hashicorp/go-azure-sdk => /home/wuxu/azure/go-azure-sdk
+)
+
 go 1.20
