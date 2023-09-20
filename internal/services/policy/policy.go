@@ -8,13 +8,61 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	assignments "github.com/hashicorp/go-azure-sdk/resource-manager/resources/2022-06-01/policyassignments"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policydefinitions"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policysetdefinitions"
+	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 )
+
+type queryPolicy struct {
+	subscriptionID  string
+	name            string // name or display name
+	managementGroup string
+}
+
+func newQueryPolicy(subscriptionID string, name string, managementGroup string) queryPolicy {
+	return queryPolicy{
+		subscriptionID:  subscriptionID,
+		name:            name,
+		managementGroup: managementGroup,
+	}
+}
+
+func (q queryPolicy) policyManagementID() policydefinitions.Providers2PolicyDefinitionId {
+	return policydefinitions.NewProviders2PolicyDefinitionID(q.managementGroup, q.name)
+}
+
+func (q queryPolicy) policySetManagementID() policysetdefinitions.Providers2PolicySetDefinitionId {
+	return policysetdefinitions.NewProviders2PolicySetDefinitionID(q.managementGroup, q.name)
+}
+
+type GetPolicySetResponse struct {
+	HttpResponse *http.Response
+	OData        *odata.OData
+	Model        *policysetdefinitions.PolicySetDefinition
+}
+
+func (g *GetPolicySetResponse) loadSDKResponse(resp interface{}) {
+	switch v := resp.(type) {
+	case *policysetdefinitions.GetBuiltInOperationResponse:
+		g.OData = v.OData
+		g.Model = v.Model
+		g.HttpResponse = v.HttpResponse
+	case *policysetdefinitions.GetOperationResponse:
+		g.OData = v.OData
+		g.Model = v.Model
+		g.HttpResponse = v.HttpResponse
+	case *policysetdefinitions.GetAtManagementGroupOperationResponse:
+		g.OData = v.OData
+		g.Model = v.Model
+		g.HttpResponse = v.HttpResponse
+	}
+}
 
 func getPolicyDefinitionByDisplayName(ctx context.Context, client *policydefinitions.PolicyDefinitionsClient, subscriptionID, displayName, managementGroupName string,
 	builtInOnly bool) (policydefinitions.PolicyDefinition, error) {
@@ -107,71 +155,65 @@ func getPolicyDefinitionByName(ctx context.Context, client *policydefinitions.Po
 	return res, err
 }
 
-func getPolicySetDefinitionByName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, name, managementGroupID, subscriptionID string) (res policysetdefinitions.PolicySetDefinition, err error) {
-	if managementGroupID == "" {
+func getPolicySetDefinitionByName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, query queryPolicy) (res GetPolicySetResponse, err error) {
+	if query.managementGroup == "" {
 		var builtIn policysetdefinitions.GetBuiltInOperationResponse
-		builtIn, err = client.GetBuiltIn(ctx, policysetdefinitions.NewPolicySetDefinitionID(name))
+		builtIn, err = client.GetBuiltIn(ctx, policysetdefinitions.NewPolicySetDefinitionID(query.name))
+		res.loadSDKResponse(builtIn)
 		if err == nil && builtIn.Model != nil {
-			return *builtIn.Model, nil
+			return res, nil
 		}
 		if response.WasNotFound(builtIn.HttpResponse) {
-			var result policysetdefinitions.GetOperationResponse
-			result, err = client.Get(ctx, policysetdefinitions.NewProviderPolicySetDefinitionID(subscriptionID, name))
-			if err == nil && result.Model != nil {
-				return *result.Model, nil
-			}
+			getRes, err := client.Get(ctx, policysetdefinitions.NewProviderPolicySetDefinitionID(query.subscriptionID, query.name))
+			res.loadSDKResponse(getRes)
+			return res, err
 		}
 	} else {
 		var result policysetdefinitions.GetAtManagementGroupOperationResponse
-		result, err = client.GetAtManagementGroup(ctx, policysetdefinitions.NewProviders2PolicySetDefinitionID(managementGroupID, name))
-		if err == nil && result.Model != nil {
-			return *result.Model, nil
-		}
+		result, err = client.GetAtManagementGroup(ctx, query.policySetManagementID())
+		res.loadSDKResponse(result)
 	}
 
-	return policysetdefinitions.PolicySetDefinition{}, err
+	return res, err
 }
 
-func getPolicySetDefinitionByDisplayName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, displayName, managementGroupID, subscriptionID string) (policysetdefinitions.PolicySetDefinition, error) {
+func getPolicySetDefinitionByDisplayName(ctx context.Context, client *policysetdefinitions.PolicySetDefinitionsClient, query queryPolicy) (policysetdefinitions.PolicySetDefinition, error) {
 	var setDefinitions []policysetdefinitions.PolicySetDefinition
 	var err error
 
-	if managementGroupID != "" {
+	if query.managementGroup != "" {
 		var result policysetdefinitions.ListByManagementGroupCompleteResult
-		result, err = client.ListByManagementGroupComplete(ctx, commonids.NewManagementGroupID(managementGroupID), policysetdefinitions.ListByManagementGroupOperationOptions{})
+		result, err = client.ListByManagementGroupComplete(ctx, commonids.NewManagementGroupID(query.managementGroup), policysetdefinitions.ListByManagementGroupOperationOptions{})
 		setDefinitions = result.Items
 	} else {
 		var result policysetdefinitions.ListCompleteResult
-		result, err = client.ListComplete(ctx, commonids.NewSubscriptionID(subscriptionID), policysetdefinitions.ListOperationOptions{})
+		result, err = client.ListComplete(ctx, commonids.NewSubscriptionID(query.subscriptionID), policysetdefinitions.ListOperationOptions{})
 		setDefinitions = result.Items
 	}
 	if err != nil {
 		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %+v", err)
 	}
 
-	// var results []policy.SetDefinition
-	// for setDefinitions.NotDone() {
-	// 	def := setDefinitions.Value()
-	// 	if def.DisplayName != nil && *def.DisplayName == displayName && def.ID != nil {
-	// 		results = append(results, def)
-	// 	}
-	//
-	// 	if err := setDefinitions.NextWithContext(ctx); err != nil {
-	// 		return policy.SetDefinition{}, fmt.Errorf("loading Policy Set Definition List: %s", err)
-	// 	}
-	// }
+	var results []policysetdefinitions.PolicySetDefinition
+	for _, def := range setDefinitions {
+		if prop := def.Properties; prop != nil {
+			if pointer.From(prop.DisplayName) == query.name && def.Id != nil {
+				results = append(results, def)
+			}
+		}
+	}
 
 	// throw error when we found none
-	if len(setDefinitions) == 0 {
-		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: could not find policy '%s'", displayName)
+	if len(results) == 0 {
+		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: could not find policy '%s'", query.name)
 	}
 
 	// throw error when we found more than one
-	if len(setDefinitions) > 1 {
-		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: found more than one policy set definition '%s'", displayName)
+	if len(results) > 1 {
+		return policysetdefinitions.PolicySetDefinition{}, fmt.Errorf("loading Policy Set Definition List: found more than one policy set definition '%s'", query.name)
 	}
 
-	return setDefinitions[0], nil
+	return results[0], nil
 }
 
 func expandParameterDefinitionsValueFromString(jsonString string) (map[string]policydefinitions.ParameterDefinitionsValue, error) {
@@ -186,6 +228,17 @@ func flattenParameterDefinitionsValueToString(input *map[string]policydefinition
 	if input == nil || len(*input) == 0 {
 		return "", nil
 	}
+	return flattenParameterDefinitionsValue(input)
+}
+
+func flattenPolicySetParameterDefinitionsValueToString(input *map[string]policysetdefinitions.ParameterDefinitionsValue) (string, error) {
+	if input == nil || len(*input) == 0 {
+		return "", nil
+	}
+	return flattenParameterDefinitionsValue(input)
+}
+
+func flattenParameterDefinitionsValue(input interface{}) (string, error) {
 
 	result, err := json.Marshal(input)
 	if err != nil {
@@ -208,7 +261,7 @@ func expandParameterValuesValueFromString(jsonString string) (map[string]assignm
 	return result, err
 }
 
-func flattenParameterValuesValueToString(input map[string]*policysetdefinitions.ParameterValuesValue) (string, error) {
+func flattenParameterValuesValueToString(input map[string]policysetdefinitions.ParameterValuesValue) (string, error) {
 	if input == nil {
 		return "", nil
 	}

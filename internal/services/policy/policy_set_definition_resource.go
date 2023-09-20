@@ -15,6 +15,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/preview/resources/mgmt/2021-06-01-preview/policy" // nolint: staticcheck
 	"github.com/Azure/go-autorest/autorest"
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/resources/2023-04-01/policysetdefinitions"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
@@ -212,6 +214,7 @@ type DefinitionReferenceInOldApiVersion struct {
 }
 
 func resourceArmPolicySetDefinitionCreate(d *pluginsdk.ResourceData, meta interface{}) error {
+	subscriptionID := meta.(*clients.Client).Account.SubscriptionId
 	client := meta.(*clients.Client).Policy.SetDefinitionsClient
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -226,9 +229,9 @@ func resourceArmPolicySetDefinitionCreate(d *pluginsdk.ResourceData, meta interf
 		managementGroupName = managementGroupID.Name
 	}
 
-	existing, err := getPolicySetDefinitionByName(ctx, client, name, managementGroupName)
+	existing, err := getPolicySetDefinitionByName(ctx, client, name, managementGroupName, subscriptionID)
 	if err != nil {
-		if !utils.ResponseWasNotFound(existing.Response) {
+		if !utils.ResponseWasNotFound(existing) {
 			return fmt.Errorf("checking for presence of existing Policy Set Definition %q: %+v", name, err)
 		}
 	}
@@ -441,7 +444,7 @@ func resourceArmPolicySetDefinitionRead(d *pluginsdk.ResourceData, meta interfac
 		managementGroupName = managementGroupId.Name
 	}
 
-	resp, err := getPolicySetDefinitionByName(ctx, client, id.Name, managementGroupName)
+	getResp, err := getPolicySetDefinitionByName(ctx, client, id.Name, managementGroupName)
 	if err != nil {
 		if utils.ResponseWasNotFound(resp.Response) {
 			log.Printf("[INFO] Error reading Policy Set Definition %q - removing from state", d.Id())
@@ -452,14 +455,15 @@ func resourceArmPolicySetDefinitionRead(d *pluginsdk.ResourceData, meta interfac
 		return fmt.Errorf("reading Policy Set Definition %+v", err)
 	}
 
+	resp := getResp.Model
 	d.Set("name", resp.Name)
 	d.Set("management_group_id", managementGroupName)
 	if managementGroupName != "" {
 		d.Set("management_group_id", managementGroupId.ID())
 	}
 
-	if props := resp.SetDefinitionProperties; props != nil {
-		d.Set("policy_type", string(props.PolicyType))
+	if props := resp.Properties; props != nil {
+		d.Set("policy_type", string(pointer.From(props.PolicyType)))
 		d.Set("display_name", props.DisplayName)
 		d.Set("description", props.Description)
 
@@ -474,7 +478,7 @@ func resourceArmPolicySetDefinitionRead(d *pluginsdk.ResourceData, meta interfac
 		}
 
 		if parameters := props.Parameters; parameters != nil {
-			parametersStr, err := flattenParameterDefinitionsValueToString(parameters)
+			parametersStr, err := flattenPolicySetParameterDefinitionsValueToString(parameters)
 			if err != nil {
 				return fmt.Errorf("flattening JSON for `parameters`: %+v", err)
 			}
@@ -617,35 +621,27 @@ func expandAzureRMPolicySetDefinitionPolicyDefinitions(input []interface{}) (*[]
 	return &result, nil
 }
 
-func flattenAzureRMPolicySetDefinitionPolicyDefinitions(input *[]policy.DefinitionReference) ([]interface{}, error) {
+func flattenAzureRMPolicySetDefinitionPolicyDefinitions(input []policysetdefinitions.PolicyDefinitionReference) ([]interface{}, error) {
 	result := make([]interface{}, 0)
 	if input == nil {
 		return result, nil
 	}
 
-	for _, definition := range *input {
-		policyDefinitionID := ""
-		if definition.PolicyDefinitionID != nil {
-			policyDefinitionID = *definition.PolicyDefinitionID
-		}
+	for _, definition := range input {
+		policyDefinitionID := definition.PolicyDefinitionId
 
 		parametersMap := make(map[string]interface{})
-		for k, v := range definition.Parameters {
-			if v == nil {
-				continue
-			}
+		params := pointer.From(definition.Parameters)
+		for k, v := range params {
 			parametersMap[k] = fmt.Sprintf("%v", v.Value) // map in terraform only accepts string as its values, therefore we have to convert the value to string
 		}
 
-		parameterValues, err := flattenParameterValuesValueToString(definition.Parameters)
+		parameterValues, err := flattenParameterValuesValueToString(params)
 		if err != nil {
 			return nil, fmt.Errorf("serializing JSON from `parameter_values`: %+v", err)
 		}
 
-		policyDefinitionReference := ""
-		if definition.PolicyDefinitionReferenceID != nil {
-			policyDefinitionReference = *definition.PolicyDefinitionReferenceID
-		}
+		policyDefinitionReference := pointer.From(definition.PolicyDefinitionReferenceId)
 
 		result = append(result, map[string]interface{}{
 			"policy_definition_id": policyDefinitionID,
@@ -684,33 +680,18 @@ func expandAzureRMPolicySetDefinitionPolicyGroups(input []interface{}) *[]policy
 	return &result
 }
 
-func flattenAzureRMPolicySetDefinitionPolicyGroups(input *[]policy.DefinitionGroup) []interface{} {
+func flattenAzureRMPolicySetDefinitionPolicyGroups(input *[]policysetdefinitions.PolicyDefinitionGroup) []interface{} {
 	result := make([]interface{}, 0)
 	if input == nil {
 		return result
 	}
 
 	for _, group := range *input {
-		name := ""
-		if group.Name != nil {
-			name = *group.Name
-		}
-		displayName := ""
-		if group.DisplayName != nil {
-			displayName = *group.DisplayName
-		}
-		category := ""
-		if group.Category != nil {
-			category = *group.Category
-		}
-		description := ""
-		if group.Description != nil {
-			description = *group.Description
-		}
-		metadataID := ""
-		if group.AdditionalMetadataID != nil {
-			metadataID = *group.AdditionalMetadataID
-		}
+		name := group.Name
+		displayName := pointer.From(group.DisplayName)
+		category := pointer.From(group.Category)
+		description := pointer.From(group.Description)
+		metadataID := pointer.From(group.AdditionalMetadataId)
 
 		result = append(result, map[string]interface{}{
 			"name":                            name,
