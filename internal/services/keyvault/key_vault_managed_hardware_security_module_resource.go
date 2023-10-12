@@ -47,10 +47,10 @@ func resourceKeyVaultManagedHardwareSecurityModule() *pluginsdk.Resource {
 		}),
 
 		Timeouts: &pluginsdk.ResourceTimeout{
-			Create: pluginsdk.DefaultTimeout(60 * time.Minute),
+			Create: pluginsdk.DefaultTimeout(90 * time.Minute),
 			Read:   pluginsdk.DefaultTimeout(5 * time.Minute),
-			Update: pluginsdk.DefaultTimeout(30 * time.Minute),
-			Delete: pluginsdk.DefaultTimeout(60 * time.Minute),
+			Update: pluginsdk.DefaultTimeout(90 * time.Minute),
+			Delete: pluginsdk.DefaultTimeout(90 * time.Minute),
 		},
 
 		CustomizeDiff: pluginsdk.CustomizeDiffShim(keyVaultHSMCustomizeDiff),
@@ -120,28 +120,15 @@ func resourceKeyVaultManagedHardwareSecurityModule() *pluginsdk.Resource {
 				ForceNew: true,
 			},
 
-			"region": {
+			// replication has to after hsm activated
+			// or error like: Security domain is not downloaded for the pool
+			"replication_regions": {
 				Type:     pluginsdk.TypeList,
 				Optional: true,
-				ForceNew: true,
-				Elem: &pluginsdk.Resource{
-					Schema: map[string]*pluginsdk.Schema{
-						"name": {
-							Type:         pluginsdk.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringIsNotEmpty,
-						},
-
-						"is_primary": {
-							Type:     pluginsdk.TypeBool,
-							Computed: true,
-						},
-
-						"state": {
-							Type:     pluginsdk.TypeString,
-							Computed: true,
-						},
-					},
+				Elem: &pluginsdk.Schema{
+					Type:             pluginsdk.TypeString,
+					ValidateFunc:     validation.StringIsNotEmpty,
+					DiffSuppressFunc: location.DiffSuppressFunc,
 				},
 			},
 
@@ -235,7 +222,7 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleCreate(d *pluginsdk.Resourc
 			EnablePurgeProtection:     utils.Bool(d.Get("purge_protection_enabled").(bool)),
 			PublicNetworkAccess:       pointer.To(publicNetworkAccessEnabled),
 			NetworkAcls:               expandMHSMNetworkAcls(d.Get("network_acls").([]interface{})),
-			Regions:                   expandMHSMRegions(d.Get("region").([]interface{})),
+			Regions:                   expandMHSMRegions(d.Get("replication_regions").([]interface{})),
 		},
 		Sku: &managedhsms.ManagedHsmSku{
 			Family: managedhsms.ManagedHsmSkuFamilyB,
@@ -285,6 +272,15 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleUpdate(d *pluginsdk.Resourc
 	resp, err := hsmClient.Get(ctx, *id)
 	if err != nil || resp.Model == nil || resp.Model.Properties == nil || resp.Model.Properties.HsmUri == nil {
 		return fmt.Errorf("retrieving %s: %+v", id, err)
+	}
+
+	// NOTE: cannot removing and adding regions at the same time.
+	if d.HasChange("replication_regions") {
+		hsm := *resp.Model
+		hsm.Properties.Regions = expandMHSMRegions(d.Get("replication_regions").([]interface{}))
+		if err := hsmClient.CreateOrUpdateThenPoll(ctx, *id, *resp.Model); err != nil {
+			return fmt.Errorf("updating %s: %+v", id, err)
+		}
 	}
 
 	// security domain download to activate this module
@@ -352,7 +348,7 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleRead(d *pluginsdk.ResourceD
 				return fmt.Errorf("setting `network_acls`: %+v", err)
 			}
 
-			d.Set("region", flattenMHSMRegions(props.Regions))
+			d.Set("replication_regions", flattenMHSMRegions(props.Regions))
 		}
 
 		skuName := ""
@@ -389,8 +385,19 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleDelete(d *pluginsdk.Resourc
 	purgeProtectionEnabled := false
 	if model := resp.Model; model != nil {
 		loc = location.NormalizeNilable(model.Location)
-		if props := model.Properties; props != nil && props.EnablePurgeProtection != nil {
-			purgeProtectionEnabled = *props.EnablePurgeProtection
+		if props := model.Properties; props != nil {
+			if props.EnablePurgeProtection != nil {
+				purgeProtectionEnabled = *props.EnablePurgeProtection
+			}
+
+			if props.Regions != nil && len(*props.Regions) > 0 {
+				// Have to remove all replication regions before delete the managed HSM resource
+				// https://learn.microsoft.com/en-us/azure/key-vault/managed-hsm/multi-region-replication#soft-delete-behavior
+				props.Regions = pointer.To([]managedhsms.MHSMGeoReplicatedRegion{})
+				if err = hsmClient.CreateOrUpdateThenPoll(ctx, *id, *model); err != nil {
+					return fmt.Errorf("deleting replication regions for %s: %+v", id, err)
+				}
+			}
 		}
 	}
 
@@ -427,13 +434,11 @@ func expandMHSMNetworkAcls(input []interface{}) *managedhsms.MHSMNetworkRuleSet 
 }
 
 func expandMHSMRegions(regions []interface{}) *[]managedhsms.MHSMGeoReplicatedRegion {
-	res := make([]managedhsms.MHSMGeoReplicatedRegion, 0)
+	var res []managedhsms.MHSMGeoReplicatedRegion
 	for _, v := range regions {
-		if region, ok := v.(map[string]interface{}); ok {
-			res = append(res, managedhsms.MHSMGeoReplicatedRegion{
-				Name: pointer.To(region["name"].(string)),
-			})
-		}
+		res = append(res, managedhsms.MHSMGeoReplicatedRegion{
+			Name: pointer.To(v.(string)),
+		})
 	}
 
 	return &res
@@ -460,18 +465,16 @@ func flattenMHSMNetworkAcls(acl *managedhsms.MHSMNetworkRuleSet) []interface{} {
 	}
 }
 
-func flattenMHSMRegions(regions *[]managedhsms.MHSMGeoReplicatedRegion) interface{} {
+func flattenMHSMRegions(regions *[]managedhsms.MHSMGeoReplicatedRegion) (res []string) {
+	res = make([]string, 0)
 	if regions == nil {
-		return []interface{}{}
+		return
 	}
 
-	res := make([]interface{}, 0)
 	for _, region := range *regions {
-		res = append(res, map[string]interface{}{
-			"name":       pointer.From(region.Name),
-			"is_primary": pointer.From(region.IsPrimary),
-			"state":      pointer.From(region.ProvisioningState),
-		})
+		if !pointer.From(region.IsPrimary) {
+			res = append(res, pointer.From(region.Name))
+		}
 	}
 
 	return res

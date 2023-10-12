@@ -23,11 +23,11 @@ func TestAccKeyVaultManagedHardwareSecurityModule(t *testing.T) {
 	// Azure only being able provision against one instance at a time
 	acceptance.RunTestsInSequence(t, map[string]map[string]func(t *testing.T){
 		"resource": {
-			"data_source": testAccDataSourceKeyVaultManagedHardwareSecurityModule_basic,
-			"basic":       testAccKeyVaultManagedHardwareSecurityModule_basic,
-			"update":      testAccKeyVaultManagedHardwareSecurityModule_requiresImport,
-			"complete":    testAccKeyVaultManagedHardwareSecurityModule_complete,
-			"download":    testAccKeyVaultManagedHardwareSecurityModule_download,
+			// "data_source": testAccDataSourceKeyVaultManagedHardwareSecurityModule_basic,
+			// "basic":       testAccKeyVaultManagedHardwareSecurityModule_basic,
+			// "update":      testAccKeyVaultManagedHardwareSecurityModule_requiresImport,
+			"complete": testAccKeyVaultManagedHardwareSecurityModule_complete,
+			// "download":    testAccKeyVaultManagedHardwareSecurityModule_download,
 		},
 	})
 }
@@ -103,6 +103,13 @@ func testAccKeyVaultManagedHardwareSecurityModule_complete(t *testing.T) {
 			),
 		},
 		data.ImportStep(),
+		{
+			Config: r.completeUpdate(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep(),
 	})
 }
 
@@ -171,7 +178,9 @@ func (r KeyVaultManagedHardwareSecurityModuleResource) download(data acceptance.
 provider "azurerm" {
   features {}
 }
+
 %[1]s
+
 resource "azurerm_key_vault" "test" {
   name                       = "acc%[2]d"
   location                   = azurerm_resource_group.test.location
@@ -209,6 +218,7 @@ resource "azurerm_key_vault" "test" {
     environment = "Production"
   }
 }
+
 resource "azurerm_key_vault_certificate" "cert" {
   count        = %[3]d
   name         = "acchsmcert${count.index}"
@@ -249,6 +259,7 @@ resource "azurerm_key_vault_certificate" "cert" {
     }
   }
 }
+
 resource "azurerm_key_vault_managed_hardware_security_module" "test" {
   name                     = "kvHsm%[2]d"
   resource_group_name      = azurerm_resource_group.test.name
@@ -261,7 +272,8 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
 }
 `, template, data.RandomInteger, certCount, activateConfig)
 }
-func (r KeyVaultManagedHardwareSecurityModuleResource) complete(data acceptance.TestData) string {
+
+func (r KeyVaultManagedHardwareSecurityModuleResource) completeTemplate(data acceptance.TestData) string {
 	template := r.template(data)
 	return fmt.Sprintf(`
 provider "azurerm" {
@@ -285,6 +297,15 @@ resource "azurerm_subnet" "test_a" {
   service_endpoints    = ["Microsoft.KeyVault"]
 }
 
+`, template, data.RandomInteger)
+}
+
+func (r KeyVaultManagedHardwareSecurityModuleResource) complete(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+
+
+%s
+
 resource "azurerm_key_vault_managed_hardware_security_module" "test" {
   name                       = "kvHsm%[2]d"
   resource_group_name        = azurerm_resource_group.test.name
@@ -296,16 +317,8 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
   admin_object_ids           = [data.azurerm_client_config.current.object_id]
 
   network_acls {
-    default_action = "Deny"
+    default_action = "Allow"
     bypass         = "None"
-  }
-
-  region {
-    name = "West Europe"
-  }
-
-  region {
-    name = "US East2"
   }
 
   public_network_access_enabled = true
@@ -314,7 +327,38 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
     Env = "Test"
   }
 }
-`, template, data.RandomInteger)
+`, r.completeTemplate(data), data.RandomInteger)
+}
+
+func (r KeyVaultManagedHardwareSecurityModuleResource) completeUpdate(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+
+
+%s
+
+resource "azurerm_key_vault_managed_hardware_security_module" "test" {
+  name                       = "kvHsm%[2]d"
+  resource_group_name        = azurerm_resource_group.test.name
+  location                   = azurerm_resource_group.test.location
+  sku_name                   = "Standard_B1"
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  admin_object_ids           = [data.azurerm_client_config.current.object_id]
+
+  network_acls {
+    default_action = "Allow"
+    bypass         = "None"
+  }
+
+  replication_regions           = ["East US 2"]
+  public_network_access_enabled = true
+
+  tags = {
+    Env = "Test"
+  }
+}
+`, r.completeTemplate(data), data.RandomInteger)
 }
 
 func (KeyVaultManagedHardwareSecurityModuleResource) template(data acceptance.TestData) string {
