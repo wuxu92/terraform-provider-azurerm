@@ -104,7 +104,7 @@ func testAccKeyVaultManagedHardwareSecurityModule_complete(t *testing.T) {
 		},
 		data.ImportStep(),
 		{
-			Config: r.completeUpdate(data),
+			Config: r.completeWithDownloadAndReplication(data),
 			Check: acceptance.ComposeTestCheckFunc(
 				check.That(data.ResourceName).ExistsInAzure(r),
 			),
@@ -130,9 +130,6 @@ func (KeyVaultManagedHardwareSecurityModuleResource) Exists(ctx context.Context,
 func (r KeyVaultManagedHardwareSecurityModuleResource) basic(data acceptance.TestData) string {
 	template := r.template(data)
 	return fmt.Sprintf(`
-provider "azurerm" {
-  features {}
-}
 
 %s
 
@@ -164,9 +161,8 @@ resource "azurerm_key_vault_managed_hardware_security_module" "import" {
 `, template)
 }
 
-func (r KeyVaultManagedHardwareSecurityModuleResource) download(data acceptance.TestData, certCount int) string {
-	template := r.template(data)
-	activateConfig := ""
+func (r KeyVaultManagedHardwareSecurityModuleResource) downloadCerts(data acceptance.TestData, certCount int) (
+	certs, activateConfig string) {
 	if certCount > 0 {
 		activateConfig = `
   security_domain_key_vault_certificate_ids = [for cert in azurerm_key_vault_certificate.cert : cert.id]
@@ -175,14 +171,8 @@ func (r KeyVaultManagedHardwareSecurityModuleResource) download(data acceptance.
 	}
 
 	return fmt.Sprintf(`
-provider "azurerm" {
-  features {}
-}
-
-%[1]s
-
 resource "azurerm_key_vault" "test" {
-  name                       = "acc%[2]d"
+  name                       = "acc%[1]d"
   location                   = azurerm_resource_group.test.location
   resource_group_name        = azurerm_resource_group.test.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -191,20 +181,6 @@ resource "azurerm_key_vault" "test" {
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = data.azurerm_client_config.current.object_id
-    key_permissions = [
-      "Create",
-      "Delete",
-      "Get",
-      "Purge",
-      "Recover",
-      "Update",
-      "GetRotationPolicy",
-    ]
-    secret_permissions = [
-      "Delete",
-      "Get",
-      "Set",
-    ]
     certificate_permissions = [
       "Create",
       "Delete",
@@ -220,7 +196,7 @@ resource "azurerm_key_vault" "test" {
 }
 
 resource "azurerm_key_vault_certificate" "cert" {
-  count        = %[3]d
+  count        = %[2]d
   name         = "acchsmcert${count.index}"
   key_vault_id = azurerm_key_vault.test.id
   certificate_policy {
@@ -259,9 +235,21 @@ resource "azurerm_key_vault_certificate" "cert" {
     }
   }
 }
+`, data.RandomInteger, certCount), activateConfig
+}
+
+func (r KeyVaultManagedHardwareSecurityModuleResource) download(data acceptance.TestData, certCount int) string {
+	certs, activateConfig := r.downloadCerts(data, certCount)
+
+	return fmt.Sprintf(`
+
+
+%s
+
+%s
 
 resource "azurerm_key_vault_managed_hardware_security_module" "test" {
-  name                     = "kvHsm%[2]d"
+  name                     = "kvHsm%[3]d"
   resource_group_name      = azurerm_resource_group.test.name
   location                 = azurerm_resource_group.test.location
   sku_name                 = "Standard_B1"
@@ -270,15 +258,13 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
   purge_protection_enabled = false
   %[4]s
 }
-`, template, data.RandomInteger, certCount, activateConfig)
+`, r.template(data), certs, data.RandomInteger, activateConfig)
 }
 
 func (r KeyVaultManagedHardwareSecurityModuleResource) completeTemplate(data acceptance.TestData) string {
 	template := r.template(data)
 	return fmt.Sprintf(`
-provider "azurerm" {
-  features {}
-}
+
 
 %s
 
@@ -330,14 +316,18 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
 `, r.completeTemplate(data), data.RandomInteger)
 }
 
-func (r KeyVaultManagedHardwareSecurityModuleResource) completeUpdate(data acceptance.TestData) string {
+func (r KeyVaultManagedHardwareSecurityModuleResource) completeWithDownloadAndReplication(data acceptance.TestData) string {
+	certs, activateConfig := r.downloadCerts(data, 3)
+
 	return fmt.Sprintf(`
 
 
 %s
 
+%s
+
 resource "azurerm_key_vault_managed_hardware_security_module" "test" {
-  name                       = "kvHsm%[2]d"
+  name                       = "kvHsm%[3]d"
   resource_group_name        = azurerm_resource_group.test.name
   location                   = azurerm_resource_group.test.location
   sku_name                   = "Standard_B1"
@@ -354,15 +344,21 @@ resource "azurerm_key_vault_managed_hardware_security_module" "test" {
   replication_regions           = ["East US 2"]
   public_network_access_enabled = true
 
+%s
+
   tags = {
     Env = "Test"
   }
 }
-`, r.completeTemplate(data), data.RandomInteger)
+`, r.completeTemplate(data), certs, data.RandomInteger, activateConfig)
 }
 
 func (KeyVaultManagedHardwareSecurityModuleResource) template(data acceptance.TestData) string {
 	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
 data "azurerm_client_config" "current" {
 }
 

@@ -47,10 +47,10 @@ func resourceKeyVaultManagedHardwareSecurityModule() *pluginsdk.Resource {
 		}),
 
 		Timeouts: &pluginsdk.ResourceTimeout{
-			Create: pluginsdk.DefaultTimeout(90 * time.Minute),
+			Create: pluginsdk.DefaultTimeout(120 * time.Minute),
 			Read:   pluginsdk.DefaultTimeout(5 * time.Minute),
-			Update: pluginsdk.DefaultTimeout(90 * time.Minute),
-			Delete: pluginsdk.DefaultTimeout(90 * time.Minute),
+			Update: pluginsdk.DefaultTimeout(120 * time.Minute),
+			Delete: pluginsdk.DefaultTimeout(120 * time.Minute),
 		},
 
 		CustomizeDiff: pluginsdk.CustomizeDiffShim(keyVaultHSMCustomizeDiff),
@@ -222,7 +222,6 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleCreate(d *pluginsdk.Resourc
 			EnablePurgeProtection:     utils.Bool(d.Get("purge_protection_enabled").(bool)),
 			PublicNetworkAccess:       pointer.To(publicNetworkAccessEnabled),
 			NetworkAcls:               expandMHSMNetworkAcls(d.Get("network_acls").([]interface{})),
-			Regions:                   expandMHSMRegions(d.Get("replication_regions").([]interface{})),
 		},
 		Sku: &managedhsms.ManagedHsmSku{
 			Family: managedhsms.ManagedHsmSkuFamilyB,
@@ -247,11 +246,21 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleCreate(d *pluginsdk.Resourc
 		if err != nil || resp.Model == nil || resp.Model.Properties == nil || resp.Model.Properties.HsmUri == nil {
 			return fmt.Errorf("got nil HSMUri for %s: %+v", id, err)
 		}
-		encData, err := securityDomainDownload(ctx, kvClient, *resp.Model.Properties.HsmUri, d.Get("security_domain_key_vault_certificate_ids").([]interface{}), d.Get("security_domain_quorum").(int))
+		encData, err := securityDomainDownload(ctx, kvClient, id, *resp.Model.Properties.HsmUri,
+			d.Get("security_domain_key_vault_certificate_ids").([]interface{}),
+			d.Get("security_domain_quorum").(int))
 		if err != nil {
 			return fmt.Errorf("downloading security domain for %q: %+v", id, err)
 		}
 		d.Set("security_domain_encrypted_data", encData)
+	}
+
+	// add regions after Security domain is downloaded for the pool
+	if replications := d.Get("replication_regions").([]interface{}); len(replications) > 0 {
+		hsm.Properties.Regions = expandMHSMRegions(replications)
+		if err := hsmClient.CreateOrUpdateThenPoll(ctx, id, hsm); err != nil {
+			return fmt.Errorf("adding replication regions for %s: %+v", id, err)
+		}
 	}
 
 	return resourceArmKeyVaultManagedHardwareSecurityModuleRead(d, meta)
@@ -274,15 +283,6 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleUpdate(d *pluginsdk.Resourc
 		return fmt.Errorf("retrieving %s: %+v", id, err)
 	}
 
-	// NOTE: cannot removing and adding regions at the same time.
-	if d.HasChange("replication_regions") {
-		hsm := *resp.Model
-		hsm.Properties.Regions = expandMHSMRegions(d.Get("replication_regions").([]interface{}))
-		if err := hsmClient.CreateOrUpdateThenPoll(ctx, *id, *resp.Model); err != nil {
-			return fmt.Errorf("updating %s: %+v", id, err)
-		}
-	}
-
 	// security domain download to activate this module
 	if ok := d.HasChange("security_domain_key_vault_certificate_ids"); ok {
 		// get hsm uri
@@ -290,11 +290,23 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleUpdate(d *pluginsdk.Resourc
 		if err != nil || resp.Model == nil || resp.Model.Properties == nil || resp.Model.Properties.HsmUri == nil {
 			return fmt.Errorf("got nil HSMUri for %s: %+v", id, err)
 		}
-		encData, err := securityDomainDownload(ctx, kvClient, *resp.Model.Properties.HsmUri, d.Get("security_domain_key_vault_certificate_ids").([]interface{}), d.Get("security_domain_quorum").(int))
+		encData, err := securityDomainDownload(ctx, kvClient, *id, *resp.Model.Properties.HsmUri,
+			d.Get("security_domain_key_vault_certificate_ids").([]interface{}),
+			d.Get("security_domain_quorum").(int))
 		if err != nil {
 			return fmt.Errorf("downloading security domain for %q: %+v", id, err)
 		}
 		d.Set("security_domain_encrypted_data", encData)
+	}
+
+	// NOTE: cannot removing and adding regions at the same time.
+	// add regions after Security domain is downloaded for the pool
+	if d.HasChange("replication_regions") {
+		hsm := *resp.Model
+		hsm.Properties.Regions = expandMHSMRegions(d.Get("replication_regions").([]interface{}))
+		if err := hsmClient.CreateOrUpdateThenPoll(ctx, *id, *resp.Model); err != nil {
+			return fmt.Errorf("updating %s: %+v", id, err)
+		}
 	}
 
 	return nil
@@ -480,7 +492,7 @@ func flattenMHSMRegions(regions *[]managedhsms.MHSMGeoReplicatedRegion) (res []s
 	return res
 }
 
-func securityDomainDownload(ctx context.Context, cli *client.Client, vaultBaseUrl string, certIds []interface{}, quorum int) (encDataStr string, err error) {
+func securityDomainDownload(ctx context.Context, cli *client.Client, id managedhsms.ManagedHSMId, vaultBaseUrl string, certIds []interface{}, quorum int) (encDataStr string, err error) {
 	sdClient := cli.MHSMSDClient
 	keyClient := cli.ManagementClient
 
@@ -546,6 +558,34 @@ func securityDomainDownload(ctx context.Context, cli *client.Client, vaultBaseUr
 	poller := pollers.NewPoller(pollerType, 10*time.Second, pollers.DefaultNumberOfDroppedConnectionsToAllow)
 	if err := poller.PollUntilDone(ctx); err != nil {
 		return "", fmt.Errorf("waiting for security domain to download: %+v", err)
+	}
+
+	// The GET request may delay, so we need to wait for a while
+	conf := pluginsdk.StateChangeConf{
+		Pending: []string{"Pending"},
+		Target:  []string{"Finish"},
+		Refresh: func() (result interface{}, state string, err error) {
+			hsm, err := cli.ManagedHsmClient.Get(ctx, id)
+			if err != nil {
+				return nil, "Pending", err
+			}
+			if hsm.Model != nil && hsm.Model.Properties != nil && &hsm.Model.Properties.SecurityDomainProperties != nil {
+				prop := *hsm.Model.Properties.SecurityDomainProperties
+				status := pointer.From(prop.ActivationStatus)
+				switch status {
+				case managedhsms.ActivationStatusActive:
+					return prop, "Finish", nil
+				case managedhsms.ActivationStatusFailed:
+					return nil, "Pending", fmt.Errorf("security domain download failed: %+v", prop.ActivationStatusMessage)
+				}
+			}
+			return hsm, "Pending", nil
+		},
+		Timeout:      time.Minute,
+		PollInterval: time.Second * 10,
+	}
+	if _, err = conf.WaitForStateContext(ctx); err != nil {
+		return "", fmt.Errorf("waiting for security domain to download finish: %+v", err)
 	}
 
 	return encData.Value, err
