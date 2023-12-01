@@ -16,7 +16,7 @@ import (
 type CustomIpPrefixResource struct{}
 
 const (
-	ipv4TestCidr = "194.41.20.0/24"
+	ipv4TestCidr = "194.41.19.0/24"
 	ipv6TestCidr = "2620:10c:5001::/48"
 )
 
