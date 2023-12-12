@@ -153,3 +153,21 @@ func nestedItemResourceImporter(ctx context.Context, d *pluginsdk.ResourceData, 
 
 	return []*pluginsdk.ResourceData{d}, nil
 }
+
+func nestedItemManagedHSMResourceImporter(ctx context.Context, d *pluginsdk.ResourceData, meta interface{}) ([]*pluginsdk.ResourceData, error) {
+	keyVaultsClient := meta.(*clients.Client).KeyVault
+	subscriptionId := meta.(*clients.Client).Account.SubscriptionId
+	id, err := parse.ParseNestedItemID(d.Id())
+	if err != nil {
+		return []*pluginsdk.ResourceData{d}, fmt.Errorf("parsing ID %q for Key Vault Child import: %v", d.Id(), err)
+	}
+
+	subscriptionResourceId := commonids.NewSubscriptionID(subscriptionId)
+	managedHSMId, err := keyVaultsClient.ManagedHSMIDFromBaseUrl(ctx, subscriptionResourceId, id.KeyVaultBaseUrl)
+	if err != nil {
+		return []*pluginsdk.ResourceData{d}, fmt.Errorf("retrieving the Resource ID the Key Vault at URL %q: %s", id.KeyVaultBaseUrl, err)
+	}
+	d.Set("managed_hsm_id", managedHSMId)
+
+	return []*pluginsdk.ResourceData{d}, nil
+}

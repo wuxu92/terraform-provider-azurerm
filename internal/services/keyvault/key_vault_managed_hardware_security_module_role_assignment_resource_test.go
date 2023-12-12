@@ -19,7 +19,7 @@ func (k KeyVaultManagedHSMRoleAssignmentResource) Exists(ctx context.Context, cl
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.KeyVault.MHSMRoleAssignmentsClient.Get(ctx, id.VaultBaseUrl, id.Scope, id.Name)
+	resp, err := client.KeyVault.ManagedHSMRoleAssignmentsClient.Get(ctx, id.VaultBaseUrl, id.Scope, id.Name)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving Type %s: %+v", id, err)
 	}
@@ -53,6 +53,11 @@ resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "t
 `, roleDef)
 }
 
+const (
+	managedHSMCryptoOfficerRoleID = "515eb02d-2335-4d2d-92f2-b1cbdf9c3778"
+	managedHSMCryptoUserRoleID    = "21dbd100-6940-42c2-9190-5d6cb909625b"
+)
+
 func (k KeyVaultManagedHSMRoleAssignmentResource) withBuiltInRoleAssignment(data acceptance.TestData) string {
 	roleDef := k.withRoleAssignment(data)
 
@@ -67,7 +72,7 @@ locals {
 
 data "azurerm_key_vault_managed_hardware_security_module_role_definition" "officer" {
   vault_base_url = azurerm_key_vault_managed_hardware_security_module.test.hsm_uri
-  name           = "515eb02d-2335-4d2d-92f2-b1cbdf9c3778"
+  name           = "%s"
 }
 
 resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "officer" {
@@ -77,5 +82,5 @@ resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "o
   role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.officer.resource_manager_id
   principal_id       = data.azurerm_client_config.current.object_id
 }
-`, roleDef)
+`, roleDef, managedHSMCryptoOfficerRoleID)
 }

@@ -92,7 +92,7 @@ func (m KeyVaultManagedHSMRoleAssignmentResource) Create() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
 		Timeout: 30 * time.Minute,
 		Func: func(ctx context.Context, meta sdk.ResourceMetaData) (err error) {
-			client := meta.Client.KeyVault.MHSMRoleAssignmentsClient
+			client := meta.Client.KeyVault.ManagedHSMRoleAssignmentsClient
 
 			var model KeyVaultManagedHSMRoleAssignmentModel
 			if err := meta.Decode(&model); err != nil {
@@ -135,7 +135,7 @@ func (m KeyVaultManagedHSMRoleAssignmentResource) Read() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
 		Timeout: 5 * time.Minute,
 		Func: func(ctx context.Context, meta sdk.ResourceMetaData) error {
-			client := meta.Client.KeyVault.MHSMRoleAssignmentsClient
+			client := meta.Client.KeyVault.ManagedHSMRoleAssignmentsClient
 
 			id, err := parse.MHSMNestedItemID(meta.ResourceData.Id())
 			if err != nil {
@@ -185,7 +185,7 @@ func (m KeyVaultManagedHSMRoleAssignmentResource) Delete() sdk.ResourceFunc {
 
 			locks.ByName(id.VaultBaseUrl, "azurerm_key_vault_managed_hardware_security_module")
 			defer locks.UnlockByName(id.VaultBaseUrl, "azurerm_key_vault_managed_hardware_security_module")
-			if _, err := meta.Client.KeyVault.MHSMRoleAssignmentsClient.Delete(ctx, id.VaultBaseUrl, id.Scope, id.Name); err != nil {
+			if _, err := meta.Client.KeyVault.ManagedHSMRoleAssignmentsClient.Delete(ctx, id.VaultBaseUrl, id.Scope, id.Name); err != nil {
 				return fmt.Errorf("deleting %s: %v", id.ID(), err)
 			}
 			return nil

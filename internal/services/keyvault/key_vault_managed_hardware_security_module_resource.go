@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
+	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/location"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/tags"
@@ -376,9 +377,38 @@ func resourceArmKeyVaultManagedHardwareSecurityModuleDelete(d *pluginsdk.Resourc
 		}
 	}
 
-	purgedId := managedhsms.NewDeletedManagedHSMID(id.SubscriptionId, loc, id.ManagedHSMName)
-	if err := hsmClient.PurgeDeletedThenPoll(ctx, purgedId); err != nil {
+	purgeId := managedhsms.NewDeletedManagedHSMID(id.SubscriptionId, loc, id.ManagedHSMName)
+	// the polling operation of purge can not terminate correctly, so we use the polling operation of polling delete
+	// https://github.com/Azure/azure-rest-api-specs/issues/27138
+	if _, err := hsmClient.PurgeDeleted(ctx, purgeId); err != nil {
 		return fmt.Errorf("purging %s: %+v", id, err)
+	}
+
+	// wait no deleted hsm
+	waitConf := pluginsdk.StateChangeConf{
+		Delay:        time.Second * 10,
+		Pending:      []string{"Pending"},
+		Target:       []string{"Finish"},
+		Timeout:      time.Minute * 5,
+		PollInterval: time.Second * 10,
+		Refresh: func() (interface{}, string, error) {
+			subscriptionID := commonids.NewSubscriptionID(purgeId.SubscriptionId)
+			deletedResp, err := hsmClient.ListDeletedCompleteMatchingPredicate(ctx, subscriptionID, managedhsms.DeletedManagedHsmOperationPredicate{
+				Name: pointer.To(purgeId.DeletedManagedHSMName),
+			})
+			if len(deletedResp.Items) == 1 {
+				return deletedResp.Items[0], "Finish", nil
+			}
+
+			if err != nil {
+				return nil, "", fmt.Errorf("retrieving deleted managed HSM %s: %+v", purgeId, err)
+			}
+
+			return nil, "Pending", nil
+		},
+	}
+	if _, err := waitConf.WaitForStateContext(ctx); err != nil {
+		return fmt.Errorf("waiting for %s to be purged: %+v", id, err)
 	}
 
 	return nil
@@ -419,7 +449,7 @@ func flattenMHSMNetworkAcls(acl *managedhsms.MHSMNetworkRuleSet) []interface{} {
 }
 
 func securityDomainDownload(ctx context.Context, cli *client.Client, vaultBaseUrl string, certIds []interface{}, quorum int) (encDataStr string, err error) {
-	sdClient := cli.MHSMSDClient
+	sdClient := cli.ManagedHSMSDClient
 	keyClient := cli.ManagementClient
 
 	var param kv74.CertificateInfoObject

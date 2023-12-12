@@ -30,6 +30,7 @@ func TestAccKeyVaultManagedHardwareSecurityModule(t *testing.T) {
 			"download":    testAccKeyVaultManagedHardwareSecurityModule_download,
 			"role_define": testAccKeyVaultManagedHardwareSecurityModule_roleDefinition,
 			"role_assign": testAccKeyVaultManagedHardwareSecurityModule_roleAssignment,
+			"key_create":  testAccKeyVaultManagedHardwareSecurityModule_basicKey,
 		},
 	})
 }

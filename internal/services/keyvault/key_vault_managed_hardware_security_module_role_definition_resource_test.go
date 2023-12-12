@@ -20,7 +20,7 @@ func (k KeyVaultMHSMRoleDefinitionResource) Exists(ctx context.Context, client *
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.KeyVault.MHSMRoleClient.Get(ctx, baseURL, "/", id.Name)
+	resp, err := client.KeyVault.ManagedHSMRoleClient.Get(ctx, baseURL, "/", id.Name)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving Type %s: %+v", id, err)
 	}

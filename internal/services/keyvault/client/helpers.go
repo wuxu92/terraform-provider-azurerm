@@ -39,7 +39,7 @@ func keyvaultCacheKey(id commonids.KeyVaultId) string {
 	return strings.ToLower(id.VaultName)
 }
 
-func (v *vaultCache) addKeyvaultToCache(key, id, resourceGroup, dataPlaneUri string) {
+func (v *vaultCache) addCache(key, id, resourceGroup, dataPlaneUri string) {
 	item := vaultDetails{
 		dataPlaneBaseUri: dataPlaneUri,
 		vaultID:          id,
@@ -85,7 +85,7 @@ func (v *vaultCache) getCachedID(key string) *string {
 }
 
 func (c *Client) AddToCache(keyVaultId commonids.KeyVaultId, dataPlaneUri string) {
-	c.keyvaultCache.addKeyvaultToCache(keyvaultCacheKey(keyVaultId), keyVaultId.ID(), keyVaultId.ResourceGroupName, dataPlaneUri)
+	c.keyvaultCache.addCache(keyvaultCacheKey(keyVaultId), keyVaultId.ID(), keyVaultId.ResourceGroupName, dataPlaneUri)
 }
 
 func (c *Client) BaseUriForKeyVault(ctx context.Context, keyVaultId commonids.KeyVaultId) (*string, error) {
@@ -221,9 +221,10 @@ func (c *Client) parseNameFromBaseUrl(input string) (*string, error) {
 	// https://the-keyvault.vault.usgovcloudapi.net
 	// https://the-keyvault.vault.cloudapi.microsoft
 	// https://the-keyvault.vault.azure.cn
+	// https://the-managedhsm.managedhsm.azure.cn
 
 	segments := strings.Split(uri.Host, ".")
-	if len(segments) < 3 || segments[1] != "vault" {
+	if len(segments) < 3 || (segments[1] != "vault" && segments[1] != "managedhsm") {
 		return nil, fmt.Errorf("expected a URI in the format `the-keyvault-name.vault.**` but got %q", uri.Host)
 	}
 	return &segments[0], nil

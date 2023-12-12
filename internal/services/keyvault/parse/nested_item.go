@@ -95,7 +95,7 @@ func (id NestedItemId) VersionlessID() string {
 	return strings.TrimSuffix(strings.Join(segments, "/"), "/")
 }
 
-// ParseNestedItemID parses a Key Vault Nested Item ID (such as a Certificate, Key or Secret)
+// ParseNestedItemID parses a Key Vault/Managed HSM Nested Item ID (such as a Certificate, Key or Secret)
 // containing a version into a NestedItemId object
 func ParseNestedItemID(input string) (*NestedItemId, error) {
 	item, err := parseNestedItemId(input)
@@ -117,9 +117,6 @@ func ParseOptionallyVersionedNestedItemID(input string) (*NestedItemId, error) {
 }
 
 func parseNestedItemId(id string) (*NestedItemId, error) {
-	if strings.Contains(strings.ToLower(id), ".managedhsm.") {
-		return nil, fmt.Errorf("internal-error: Managed HSM IDs are not supported as Key Vault Nested Items")
-	}
 	// versioned example: https://tharvey-keyvault.vault.azure.net/type/bird/fdf067c93bbb4b22bff4d8b7a9a56217
 	// versionless example: https://tharvey-keyvault.vault.azure.net/type/bird/
 	idURL, err := url.ParseRequestURI(id)

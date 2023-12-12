@@ -11,15 +11,17 @@ import (
 )
 
 type Client struct {
-	keyvaultCache *vaultCache
+	keyvaultCache   *vaultCache
+	managedHSMCache *vaultCache
 
 	ManagedHsmClient *managedhsms.ManagedHsmsClient
 	ManagementClient *dataplane.BaseClient
 	VaultsClient     *vaults.VaultsClient
 
-	MHSMSDClient              *dataplane.HSMSecurityDomainClient
-	MHSMRoleClient            *dataplane.RoleDefinitionsClient
-	MHSMRoleAssignmentsClient *dataplane.RoleAssignmentsClient
+	ManagedHSMSDClient              *dataplane.HSMSecurityDomainClient
+	ManagedHSMRoleClient            *dataplane.RoleDefinitionsClient
+	ManagedHSMRoleAssignmentsClient *dataplane.RoleAssignmentsClient
+	ManagedHSMManagementClient      *dataplane.BaseClient
 }
 
 func NewClient(o *common.ClientOptions) *Client {
@@ -42,13 +44,19 @@ func NewClient(o *common.ClientOptions) *Client {
 	mhsmRoleAssignClient := dataplane.NewRoleAssignmentsClient()
 	o.ConfigureClient(&mhsmRoleAssignClient.Client, o.ManagedHSMAuthorizer)
 
+	mhsmManagement := dataplane.New()
+	o.ConfigureClient(&mhsmManagement.Client, o.ManagedHSMAuthorizer)
+
 	return &Client{
-		keyvaultCache:             newVaultCache(),
-		ManagedHsmClient:          &managedHsmClient,
-		ManagementClient:          &managementClient,
-		VaultsClient:              &vaultsClient,
-		MHSMSDClient:              &sdClient,
-		MHSMRoleClient:            &mhsmRoleDefineClient,
-		MHSMRoleAssignmentsClient: &mhsmRoleAssignClient,
+		keyvaultCache:   newVaultCache(),
+		managedHSMCache: newVaultCache(),
+
+		ManagedHsmClient:                &managedHsmClient,
+		ManagementClient:                &managementClient,
+		VaultsClient:                    &vaultsClient,
+		ManagedHSMSDClient:              &sdClient,
+		ManagedHSMRoleClient:            &mhsmRoleDefineClient,
+		ManagedHSMRoleAssignmentsClient: &mhsmRoleAssignClient,
+		ManagedHSMManagementClient:      &mhsmManagement,
 	}
 }
