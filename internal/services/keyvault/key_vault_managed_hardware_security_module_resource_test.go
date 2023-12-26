@@ -40,7 +40,7 @@ func TestAccKeyVaultManagedHardwareSecurityModule(t *testing.T) {
 }
 
 func TestAccKeyVaultManagedHardwareSecurityModuleClearOldInstance(t *testing.T) {
-	data := acceptance.BuildTestData(t, "azurerm_key_vault_managed_hardware_security_module", "test")
+	data := acceptance.BuildTestData(t, "azurerm_resource_group", "test")
 	r := KeyVaultManagedHardwareSecurityModuleResource{}
 
 	data.ResourceSequentialTest(t, r, []acceptance.TestStep{
