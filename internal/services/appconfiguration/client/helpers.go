@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/appconfiguration/2023-03-01/configurationstores"
@@ -71,6 +72,11 @@ func (c *Client) ConfigurationStoreIDFromEndpoint(ctx context.Context, subscript
 		configurationStoreId, err := configurationstores.ParseConfigurationStoreIDInsensitively(itemId)
 		if err != nil {
 			return nil, fmt.Errorf("parsing %q: %+v", itemId, err)
+		}
+
+		// the name in the ID field would be lower cased, so we need to use the name field
+		if name := pointer.From(item.Name); name != "" && name != configurationStoreId.ConfigurationStoreName {
+			configurationStoreId.ConfigurationStoreName = name
 		}
 
 		c.AddToCache(*configurationStoreId, endpointUri)
