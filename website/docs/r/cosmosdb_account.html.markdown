@@ -142,7 +142,7 @@ The following arguments are supported:
 
 ~> **Note:** To enable the "Accept connections from within public Azure datacenters" behavior, you should add `0.0.0.0` to the list, see the [documentation](https://docs.microsoft.com/azure/cosmos-db/how-to-configure-firewall#allow-requests-from-global-azure-datacenters-or-other-sources-within-azure) for more details.
 
-* `free_tier_enabled` - (Optional) Enable the Free Tier pricing option for this Cosmos DB account. Defaults to `false`. Changing this forces a new resource to be created.
+* `free_tier_enabled` - (Optional) Enable the Free Tier pricing option for this Cosmos DB account. Defaults to `false`.
 
 * `analytical_storage_enabled` - (Optional) Enable Analytical Storage option for this Cosmos DB account. Defaults to `false`. Enabling and then disabling analytical storage forces a new resource to be created.
 

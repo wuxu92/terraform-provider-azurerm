@@ -171,7 +171,7 @@ The following arguments are supported:
 
 * `automatic_upgrade_channel` - (Optional) Specify the automatic upgrade channel for the NGINX deployment. Defaults to `stable`. The possible values are `stable` and `preview`.
 
-* `configuration` - (Optional) Specify a custom `configuration` block as defined below.
+* `configuration` - (Optional) One or more `configuration` block as defined below.
 
 * `tags` - (Optional) A mapping of tags which should be assigned to the NGINX Deployment.
 
@@ -220,8 +220,6 @@ A `network_interface` block supports the following:
 A `configuration` block supports the following:
 
 * `root_file` - (Required) Specify the root file path of this Nginx Configuration.
-
----
 
 -> **NOTE:** Either `package_data` or `config_file` must be specified - but not both.
 

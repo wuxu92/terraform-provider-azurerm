@@ -245,17 +245,17 @@ A `private_link_configuration` block supports the following:
 
 * `group_id` - (Required) The ID of the private link service group.
 
-* `private_link_service_connection` - (Required) A `private_link_service_connection` block as defined below.
+* `ip_configuration` - (Required) A `ip_configuration` block as defined below.
 
 ---
 
-A `private_link_service_connection` block supports the following:
+A `ip_configuration` block supports the following:
 
 * `name` - (Required) The name of the private link service connection.
 
 * `primary` - (Optional) Indicates whether this IP configuration is primary.
 
-* `private_ip_allocation_method` - (Optional) The private IP allocation method. The only possible value now is `Dynamic`.
+* `private_ip_allocation_method` - (Optional) The private IP allocation method. The only Possible values are `dynamic` and `static`.
 
 * `private_ip_address` - (Optional) The private IP address of the IP configuration.
 

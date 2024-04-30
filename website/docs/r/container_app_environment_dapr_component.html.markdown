@@ -81,9 +81,19 @@ A `metadata` block supports the following:
 
 A `secret` block supports the following:
 
-* `name` - (Required) The Secret name.
+* `identity` - (Optional) The identity to use for accessing the Key Vault secret reference. This can either be the Resource ID of a User Assigned Identity, or `System` for the System Assigned Identity.
 
-* `value` - (Required) The value for this secret.
+!> **Note:** `identity` must be used together with `key_vault_secret_id`
+
+* `key_vault_secret_id` - (Optional) The ID of a Key Vault secret. This can be a versioned or version-less ID.
+
+!> **Note:** When using `key_vault_secret_id`, `ignore_changes` should be used to ignore any changes to `value`.
+
+* `name` - (Required) The secret name.
+
+* `value` - (Optional) The value for this secret.
+
+!> **Note:** `value` will be ignored if `key_vault_secret_id` and `identity` are provided.
 
 ## Attributes Reference
 

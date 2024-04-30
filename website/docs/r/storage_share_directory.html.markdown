@@ -46,7 +46,7 @@ The following arguments are supported:
 
 * `name` - (Required) The name (or path) of the Directory that should be created within this File Share. Changing this forces a new resource to be created.
 
-* `storage_share_id` - (Required) The Storage Share ID in which this file will be placed into. Changing this forces a new resource to be created.
+* `storage_share_id` - (Optional) The Storage Share ID in which this file will be placed into. Changing this forces a new resource to be created.
 
 * `metadata` - (Optional) A mapping of metadata to assign to this Directory.
 
