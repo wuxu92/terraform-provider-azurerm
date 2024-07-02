@@ -105,6 +105,7 @@ func ExpandKeyVaultOrManagedHSMKey(d interface{}, hasVersion *bool, hsmEnv envir
 	return ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d, hasVersion, "key_vault_key_id", "managed_hsm_key_id", hsmEnv)
 }
 
+// ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey is return nil, nil, it means no key_vault_key_id or managed_hsm_key_id specified
 func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *bool, keyVaultFieldName, hsmFieldName string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	key := &KeyVaultOrManagedHSMKey{}
 	var err error
@@ -125,16 +126,17 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 		return nil, fmt.Errorf("not supported data type to parse CMK: %T", d)
 	}
 
-	if vaultKeyStr != "" {
+	switch {
+	case vaultKeyStr != "":
 		if key.KeyVaultKeyID, err = expandKeyvauleID(vaultKeyStr, hasVersion); err != nil {
 			return nil, err
 		}
-	} else if hsmKeyStr != "" {
+	case hsmKeyStr != "":
 		if key.ManagedHSMKeyID, key.ManagedHSMKeyVersionlessID, err = expandManagedHSMKey(hsmKeyStr, hasVersion, hsmEnv); err != nil {
 			return nil, err
 		}
-	} else {
-		return nil, fmt.Errorf("at least one of `%s` or `%s` should be specified", keyVaultFieldName, hsmFieldName)
+	default:
+		return nil, nil
 	}
 	return key, err
 }

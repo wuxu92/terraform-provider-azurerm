@@ -71,7 +71,8 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 				d:                 buildKeyVaultData("key_vault_key_url", "https://test.keyvault.azure.net/keys/test-key-name"),
 				keyVaultFieldName: "key_vault_key_id",
 			},
-			wantErr: true,
+			want:    nil,
+			wantErr: false,
 		},
 		{
 			args: args{
