@@ -128,7 +128,7 @@ func TestAccCosmosDBAccount_ManagedHSMUri(t *testing.T) {
 
 	data.ResourceTest(t, r, []acceptance.TestStep{
 		{
-			Config: r.managed_hsm_uri(data, cosmosdb.DatabaseAccountKindMongoDB, cosmosdb.DefaultConsistencyLevelStrong),
+			Config: r.managed_hsm_uri(data),
 			Check: acceptance.ComposeAggregateTestCheckFunc(
 				checkAccCosmosDBAccount_basic(data, cosmosdb.DefaultConsistencyLevelStrong, 1),
 			),
@@ -3349,7 +3349,7 @@ resource "azurerm_cosmosdb_account" "test" {
 `, data.RandomInteger, data.Locations.Primary, data.RandomString, data.RandomString, data.RandomInteger, string(kind), string(consistency))
 }
 
-func (CosmosDBAccountResource) managed_hsm_uri(data acceptance.TestData, kind cosmosdb.DatabaseAccountKind, consistency cosmosdb.DefaultConsistencyLevel) string {
+func (CosmosDBAccountResource) managed_hsm_uri(data acceptance.TestData) string {
 	hsmTemplate := customermanagedkeys.ManagedHSMKeyTempalte(data.RandomInteger, data.RandomString, []string{"data.azuread_service_principal.cosmosdb.id"})
 	return fmt.Sprintf(`
 provider "azurerm" {
@@ -3382,7 +3382,7 @@ resource "azurerm_cosmosdb_account" "test" {
   location            = azurerm_resource_group.test.location
   resource_group_name = azurerm_resource_group.test.name
   offer_type          = "Standard"
-  kind                = "%[4]s"
+  kind                = "MongoDB"
   managed_hsm_key_id  = azurerm_key_vault_managed_hardware_security_module_key.test.id
 
   capabilities {
@@ -3390,12 +3390,7 @@ resource "azurerm_cosmosdb_account" "test" {
   }
 
   consistency_policy {
-    consistency_level = "%[5]s"
-  }
-
-  geo_location {
-    location          = azurerm_resource_group.test.location
-    failover_priority = 0
+    consistency_level = "Strong"
   }
 
   identity {
@@ -3405,7 +3400,7 @@ resource "azurerm_cosmosdb_account" "test" {
     ]
   }
 }
-`, data.RandomInteger, data.Locations.Primary, hsmTemplate, kind, consistency)
+`, data.RandomInteger, data.Locations.Primary, hsmTemplate)
 }
 
 func (CosmosDBAccountResource) systemAssignedUserAssignedIdentity(data acceptance.TestData, consistency cosmosdb.DefaultConsistencyLevel) string {

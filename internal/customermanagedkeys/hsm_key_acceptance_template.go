@@ -7,14 +7,12 @@ import (
 	"github.com/hashicorp/go-uuid"
 )
 
-// a helper function to generate template for acceptance test of hsm key
-func ManagedHSMKeyTempalte(randomInteger int, randomString string, principals []string) string {
+// ManagedHSMKeyTempalte: Helper function to generate a template for HSM key acceptance tests
+// Ensure `azurerm_client_config.current` datasource is defined before using this template.
+// Verify there are no resource address conflicts in the caller of this template.
+func ManagedHSMKeyTempalte(randomInteger int, randomString string, principalRefs []string) string {
 	roleAssignes := []string{}
-	for idx, principal := range principals {
-		if _, err := uuid.ParseUUID(principal); err == nil {
-			principal = fmt.Sprintf("\"%s\"", principal)
-		}
-
+	for idx, principal := range principalRefs {
 		randomUUID, _ := uuid.GenerateUUID()
 		roleAssignes = append(roleAssignes, fmt.Sprintf(`
 resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "ra%[1]d" {

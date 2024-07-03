@@ -36,6 +36,42 @@ func (k *KeyVaultOrManagedHSMKey) ID() string {
 	return ""
 }
 
+func (k *KeyVaultOrManagedHSMKey) managedHSMKeyID() string {
+	if k.ManagedHSMKeyID != nil {
+		return k.ManagedHSMKeyID.ID()
+	}
+
+	if k.ManagedHSMKeyVersionlessID != nil {
+		return k.ManagedHSMKeyVersionlessID.ID()
+	}
+	return ""
+}
+func (k *KeyVaultOrManagedHSMKey) SetState(d interface{}) error {
+	return k.SetStateWithCustomFieldKey(d, "key_vault_key_id", "managed_hsm_key_id")
+}
+
+func (k *KeyVaultOrManagedHSMKey) SetStateWithCustomFieldKey(d interface{}, keyVaultKey, hsmKey string) error {
+	if k == nil || (k.KeyVaultKeyID == nil && k.ManagedHSMKeyID == nil && k.ManagedHSMKeyVersionlessID == nil) {
+		return nil
+	}
+
+	if rd, ok := d.(*pluginsdk.ResourceData); ok {
+		if k.KeyVaultKeyID != nil {
+			return rd.Set(keyVaultKey, k.KeyVaultKeyID.ID())
+		}
+		return rd.Set(hsmKey, k.managedHSMKeyID())
+	}
+
+	if obj, ok := d.(map[string]interface{}); ok && obj != nil {
+		if k.KeyVaultKeyID != nil {
+			obj[keyVaultKey] = k.KeyVaultKeyID.ID()
+		} else {
+			obj[hsmKey] = k.managedHSMKeyID()
+		}
+	}
+	return nil
+}
+
 func (k *KeyVaultOrManagedHSMKey) BaseUri() string {
 	if k.KeyVaultKeyID != nil {
 		return k.KeyVaultKeyID.KeyVaultBaseUrl
@@ -52,7 +88,7 @@ func (k *KeyVaultOrManagedHSMKey) BaseUri() string {
 	return ""
 }
 
-func expandKeyvauleID(keyRaw string, hasVersion *bool) (*parse.NestedItemId, error) {
+func parseKeyvauleID(keyRaw string, hasVersion *bool) (*parse.NestedItemId, error) {
 	keyID, err := parse.ParseOptionallyVersionedNestedKeyID(keyRaw)
 	if err != nil {
 		return nil, err
@@ -69,7 +105,7 @@ func expandKeyvauleID(keyRaw string, hasVersion *bool) (*parse.NestedItemId, err
 	return keyID, nil
 }
 
-func expandManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Api) (*hsmParse.ManagedHSMDataPlaneVersionedKeyId, *hsmParse.ManagedHSMDataPlaneVersionlessKeyId, error) {
+func parseManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Api) (*hsmParse.ManagedHSMDataPlaneVersionedKeyId, *hsmParse.ManagedHSMDataPlaneVersionlessKeyId, error) {
 	// if specified with hasVersion == True, then it has to be parsed as versionedKeyID
 	var domainSuffix *string
 	if hsmEnv != nil {
@@ -95,10 +131,6 @@ func expandManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Ap
 	}
 }
 
-func ExpandKeyVaultOrManagedHSMOptionallyVersionedKey(d interface{}, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
-	return ExpandKeyVaultOrManagedHSMKey(d, nil, hsmEnv)
-}
-
 func ExpandKeyVaultOrManagedHSMKey(d interface{}, hasVersion *bool, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	return ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d, hasVersion, "key_vault_key_id", "managed_hsm_key_id", hsmEnv)
 }
@@ -121,9 +153,9 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 		}
 	} else if obj, ok := d.(map[string]interface{}); ok {
 		if keyRaw, ok := obj[keyVaultFieldName]; ok {
-			vaultKeyStr = keyRaw.(string)
+			vaultKeyStr, _ = keyRaw.(string)
 		} else if keyRaw, ok = obj[hsmFieldName]; ok {
-			hsmKeyStr = keyRaw.(string)
+			hsmKeyStr, _ = keyRaw.(string)
 		}
 	} else {
 		return nil, fmt.Errorf("not supported data type to parse CMK: %T", d)
@@ -131,11 +163,11 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 
 	switch {
 	case vaultKeyStr != "":
-		if key.KeyVaultKeyID, err = expandKeyvauleID(vaultKeyStr, hasVersion); err != nil {
+		if key.KeyVaultKeyID, err = parseKeyvauleID(vaultKeyStr, hasVersion); err != nil {
 			return nil, err
 		}
 	case hsmKeyStr != "":
-		if key.ManagedHSMKeyID, key.ManagedHSMKeyVersionlessID, err = expandManagedHSMKey(hsmKeyStr, hasVersion, hsmEnv); err != nil {
+		if key.ManagedHSMKeyID, key.ManagedHSMKeyVersionlessID, err = parseManagedHSMKey(hsmKeyStr, hasVersion, hsmEnv); err != nil {
 			return nil, err
 		}
 	default:
@@ -144,6 +176,7 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 	return key, err
 }
 
+// FlattenKeyVaultOrManagedHSMID uses `KeyVaultOrManagedHSMKey.SetState()` to save the state, which this function is designed not to do.
 func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	if id == "" {
 		return nil, nil

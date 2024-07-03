@@ -1233,7 +1233,7 @@ func resourceCosmosDbAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) 
 			Tags: t,
 		}
 
-		if key, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKey(d, nil, nil); err != nil {
+		if key, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKey(d, nil, meta.(clients.Client).Account.Environment.ManagedHSM); err != nil {
 			return err
 		} else if key != nil {
 			account.Properties.KeyVaultKeyUri = pointer.To(key.ID())
@@ -1552,19 +1552,10 @@ func resourceCosmosDbAccountRead(d *pluginsdk.ResourceData, meta interface{}) er
 		}
 
 		if v := props.KeyVaultKeyUri; v != nil {
-			key, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(*v, hsmEnv)
-			if err != nil {
+			if key, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(*v, hsmEnv); err != nil {
 				return fmt.Errorf("flatten key vault uri: %+v", err)
-			}
-			if key != nil {
-				switch {
-				case key.KeyVaultKeyID != nil:
-					d.Set("key_vault_key_id", key.KeyVaultKeyID.ID())
-				case key.ManagedHSMKeyID != nil:
-					d.Set("managed_hsm_key_id", key.ManagedHSMKeyID.ID())
-				case key.ManagedHSMKeyVersionlessID != nil:
-					d.Set("managed_hsm_key_id", key.ManagedHSMKeyVersionlessID.ID())
-				}
+			} else {
+				key.SetState(d)
 			}
 		}
 
