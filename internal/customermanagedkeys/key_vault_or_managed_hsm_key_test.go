@@ -52,7 +52,7 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 				keyVaultFieldName: "key_vault_key_id",
 			},
 			want: &cmk.KeyVaultOrManagedHSMKey{
-				KeyVaultKeyID: &parse.NestedItemId{
+				KeyVaultKeyId: &parse.NestedItemId{
 					KeyVaultBaseUrl: "https://test.keyvault.azure.net/",
 					NestedItemType:  "keys",
 					Name:            "test-key-name",
@@ -81,7 +81,7 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 				hasVersion:   pointer.To(false),
 			},
 			want: &cmk.KeyVaultOrManagedHSMKey{
-				ManagedHSMKeyVersionlessID: &hsmParse.ManagedHSMDataPlaneVersionlessKeyId{
+				ManagedHSMKeyVersionlessId: &hsmParse.ManagedHSMDataPlaneVersionlessKeyId{
 					ManagedHSMName: "test",
 					DomainSuffix:   "managedhsm.azure.net",
 					KeyName:        "test-key-name",

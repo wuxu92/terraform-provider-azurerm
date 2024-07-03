@@ -11,9 +11,13 @@ import (
 )
 
 type KeyVaultOrManagedHSMKey struct {
-	KeyVaultKeyID              *parse.NestedItemId
-	ManagedHSMKeyID            *hsmParse.ManagedHSMDataPlaneVersionedKeyId
-	ManagedHSMKeyVersionlessID *hsmParse.ManagedHSMDataPlaneVersionlessKeyId
+	KeyVaultKeyId              *parse.NestedItemId
+	ManagedHSMKeyId            *hsmParse.ManagedHSMDataPlaneVersionedKeyId
+	ManagedHSMKeyVersionlessId *hsmParse.ManagedHSMDataPlaneVersionlessKeyId
+}
+
+func (k *KeyVaultOrManagedHSMKey) IsSet() bool {
+	return k != nil && (k.KeyVaultKeyId != nil || k.ManagedHSMKeyId != nil || k.ManagedHSMKeyVersionlessId != nil)
 }
 
 func (k *KeyVaultOrManagedHSMKey) ID() string {
@@ -21,68 +25,51 @@ func (k *KeyVaultOrManagedHSMKey) ID() string {
 		return ""
 	}
 
-	if k.KeyVaultKeyID != nil {
-		return k.KeyVaultKeyID.ID()
+	if k.KeyVaultKeyId != nil {
+		return k.KeyVaultKeyId.ID()
 	}
 
-	if k.ManagedHSMKeyID != nil {
-		return k.ManagedHSMKeyID.ID()
+	if k.ManagedHSMKeyId != nil {
+		return k.ManagedHSMKeyId.ID()
 	}
 
-	if k.ManagedHSMKeyVersionlessID != nil {
-		return k.ManagedHSMKeyVersionlessID.ID()
+	if k.ManagedHSMKeyVersionlessId != nil {
+		return k.ManagedHSMKeyVersionlessId.ID()
 	}
 
 	return ""
 }
 
-func (k *KeyVaultOrManagedHSMKey) managedHSMKeyID() string {
-	if k.ManagedHSMKeyID != nil {
-		return k.ManagedHSMKeyID.ID()
-	}
-
-	if k.ManagedHSMKeyVersionlessID != nil {
-		return k.ManagedHSMKeyVersionlessID.ID()
+func (k *KeyVaultOrManagedHSMKey) KeyVaultKeyID() string {
+	if k != nil && k.KeyVaultKeyId != nil {
+		return k.KeyVaultKeyId.ID()
 	}
 	return ""
 }
-func (k *KeyVaultOrManagedHSMKey) SetState(d interface{}) error {
-	return k.SetStateWithCustomFieldKey(d, "key_vault_key_id", "managed_hsm_key_id")
-}
 
-func (k *KeyVaultOrManagedHSMKey) SetStateWithCustomFieldKey(d interface{}, keyVaultKey, hsmKey string) error {
-	if k == nil || (k.KeyVaultKeyID == nil && k.ManagedHSMKeyID == nil && k.ManagedHSMKeyVersionlessID == nil) {
-		return nil
+func (k *KeyVaultOrManagedHSMKey) ManagedHSMKeyID() string {
+	if k != nil && k.ManagedHSMKeyId != nil {
+		return k.ManagedHSMKeyId.ID()
 	}
 
-	if rd, ok := d.(*pluginsdk.ResourceData); ok {
-		if k.KeyVaultKeyID != nil {
-			return rd.Set(keyVaultKey, k.KeyVaultKeyID.ID())
-		}
-		return rd.Set(hsmKey, k.managedHSMKeyID())
+	if k != nil && k.ManagedHSMKeyVersionlessId != nil {
+		return k.ManagedHSMKeyVersionlessId.ID()
 	}
 
-	if obj, ok := d.(map[string]interface{}); ok && obj != nil {
-		if k.KeyVaultKeyID != nil {
-			obj[keyVaultKey] = k.KeyVaultKeyID.ID()
-		} else {
-			obj[hsmKey] = k.managedHSMKeyID()
-		}
-	}
-	return nil
+	return ""
 }
 
 func (k *KeyVaultOrManagedHSMKey) BaseUri() string {
-	if k.KeyVaultKeyID != nil {
-		return k.KeyVaultKeyID.KeyVaultBaseUrl
+	if k.KeyVaultKeyId != nil {
+		return k.KeyVaultKeyId.KeyVaultBaseUrl
 	}
 
-	if k.ManagedHSMKeyID != nil {
-		return k.ManagedHSMKeyID.BaseUri()
+	if k.ManagedHSMKeyId != nil {
+		return k.ManagedHSMKeyId.BaseUri()
 	}
 
-	if k.ManagedHSMKeyVersionlessID != nil {
-		return k.ManagedHSMKeyVersionlessID.BaseUri()
+	if k.ManagedHSMKeyVersionlessId != nil {
+		return k.ManagedHSMKeyVersionlessId.BaseUri()
 	}
 
 	return ""
@@ -163,11 +150,11 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 
 	switch {
 	case vaultKeyStr != "":
-		if key.KeyVaultKeyID, err = parseKeyvauleID(vaultKeyStr, hasVersion); err != nil {
+		if key.KeyVaultKeyId, err = parseKeyvauleID(vaultKeyStr, hasVersion); err != nil {
 			return nil, err
 		}
 	case hsmKeyStr != "":
-		if key.ManagedHSMKeyID, key.ManagedHSMKeyVersionlessID, err = parseManagedHSMKey(hsmKeyStr, hasVersion, hsmEnv); err != nil {
+		if key.ManagedHSMKeyId, key.ManagedHSMKeyVersionlessId, err = parseManagedHSMKey(hsmKeyStr, hasVersion, hsmEnv); err != nil {
 			return nil, err
 		}
 	default:
@@ -184,7 +171,7 @@ func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaul
 
 	key := &KeyVaultOrManagedHSMKey{}
 	var err error
-	key.KeyVaultKeyID, err = parse.ParseOptionallyVersionedNestedKeyID(id)
+	key.KeyVaultKeyId, err = parse.ParseOptionallyVersionedNestedKeyID(id)
 	if err == nil {
 		return key, nil
 	}
@@ -193,11 +180,11 @@ func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaul
 	if hsmEnv != nil {
 		domainSuffix, _ = hsmEnv.DomainSuffix()
 	}
-	if key.ManagedHSMKeyID, err = hsmParse.ManagedHSMDataPlaneVersionedKeyID(id, domainSuffix); err == nil {
+	if key.ManagedHSMKeyId, err = hsmParse.ManagedHSMDataPlaneVersionedKeyID(id, domainSuffix); err == nil {
 		return key, nil
 	}
 
-	if key.ManagedHSMKeyVersionlessID, err = hsmParse.ManagedHSMDataPlaneVersionlessKeyID(id, domainSuffix); err == nil {
+	if key.ManagedHSMKeyVersionlessId, err = hsmParse.ManagedHSMDataPlaneVersionlessKeyID(id, domainSuffix); err == nil {
 		return key, nil
 	}
 
