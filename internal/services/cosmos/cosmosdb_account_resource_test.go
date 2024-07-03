@@ -3393,6 +3393,11 @@ resource "azurerm_cosmosdb_account" "test" {
     consistency_level = "Strong"
   }
 
+  geo_location {
+    location          = azurerm_resource_group.test.location
+    failover_priority = 0
+  }
+
   identity {
     type = "UserAssigned"
     identity_ids = [
