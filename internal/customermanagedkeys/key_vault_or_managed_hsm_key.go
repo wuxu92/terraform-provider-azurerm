@@ -53,19 +53,20 @@ func (k *KeyVaultOrManagedHSMKey) BaseUri() string {
 }
 
 func expandKeyvauleID(keyRaw string, hasVersion *bool) (*parse.NestedItemId, error) {
-	if pointer.From(hasVersion) {
-		if keyID, err := parse.ParseNestedKeyID(keyRaw); err == nil {
-			return keyID, nil
-		} else {
-			return nil, err
-		}
-	}
-
-	if keyID, err := parse.ParseOptionallyVersionedNestedKeyID(keyRaw); err == nil {
-		return keyID, nil
-	} else {
+	keyID, err := parse.ParseOptionallyVersionedNestedKeyID(keyRaw)
+	if err != nil {
 		return nil, err
 	}
+
+	if pointer.From(hasVersion) && keyID.Version == "" {
+		return nil, fmt.Errorf("expected a key vault versioned ID but no version information was found in: %q", keyRaw)
+	}
+
+	if hasVersion != nil && !*hasVersion && keyID.Version != "" {
+		return nil, fmt.Errorf("expected a key vault versionless ID but version information was found in: %q", keyRaw)
+	}
+
+	return keyID, nil
 }
 
 func expandManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Api) (*hsmParse.ManagedHSMDataPlaneVersionedKeyId, *hsmParse.ManagedHSMDataPlaneVersionlessKeyId, error) {
@@ -74,7 +75,8 @@ func expandManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Ap
 	if hsmEnv != nil {
 		domainSuffix, _ = hsmEnv.DomainSuffix()
 	}
-	if hasVersion == nil || *hasVersion {
+	// versioned or optional version
+	if hasVersion == nil || pointer.From(hasVersion) {
 		versioned, err := hsmParse.ManagedHSMDataPlaneVersionedKeyID(keyRaw, domainSuffix)
 		if err == nil {
 			return versioned, nil, nil
@@ -93,10 +95,6 @@ func expandManagedHSMKey(keyRaw string, hasVersion *bool, hsmEnv environments.Ap
 	}
 }
 
-// hasVersion:
-//   - nil: both versioned or versionless are ok
-//   - true: must have version
-//   - false: must not have vesrion
 func ExpandKeyVaultOrManagedHSMOptionallyVersionedKey(d interface{}, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	return ExpandKeyVaultOrManagedHSMKey(d, nil, hsmEnv)
 }
@@ -105,7 +103,12 @@ func ExpandKeyVaultOrManagedHSMKey(d interface{}, hasVersion *bool, hsmEnv envir
 	return ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d, hasVersion, "key_vault_key_id", "managed_hsm_key_id", hsmEnv)
 }
 
-// ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey is return nil, nil, it means no key_vault_key_id or managed_hsm_key_id specified
+// ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey
+// if return nil, nil, it means no key_vault_key_id or managed_hsm_key_id is specified
+// hasVersion:
+//   - nil: both versioned or versionless are ok
+//   - true: must have version
+//   - false: must not have vesrion
 func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *bool, keyVaultFieldName, hsmFieldName string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	key := &KeyVaultOrManagedHSMKey{}
 	var err error
