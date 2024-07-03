@@ -26,6 +26,8 @@ resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "r
 }
 		`, idx, principal, randomUUID))
 	}
+	roleAssigneName1, _ := uuid.GenerateUUID()
+	roleAssigneName2, _ := uuid.GenerateUUID()
 
 	return fmt.Sprintf(`
 resource "azurerm_key_vault" "test" {
@@ -124,7 +126,7 @@ data "azurerm_key_vault_managed_hardware_security_module_role_definition" "encry
 
 resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "client1" {
   managed_hsm_id     = azurerm_key_vault_managed_hardware_security_module.test.id
-  name               = "1e243909-064c-6ac3-84e9-1c8bf8d6ad22"
+  name               = "%[4]s"
   scope              = "/keys"
   role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.crypto-officer.resource_manager_id
   principal_id       = data.azurerm_client_config.current.object_id
@@ -132,7 +134,7 @@ resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "c
 
 resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "client2" {
   managed_hsm_id     = azurerm_key_vault_managed_hardware_security_module.test.id
-  name               = "1e243909-064c-6ac3-84e9-1c8bf8d6ad23"
+  name               = "%[5]s"
   scope              = "/keys"
   role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.crypto-user.resource_manager_id
   principal_id       = data.azurerm_client_config.current.object_id
@@ -152,5 +154,5 @@ resource "azurerm_key_vault_managed_hardware_security_module_key" "test" {
 }
 
 %[3]s
-`, randomString, randomInteger, strings.Join(roleAssignes, "\n\n"))
+`, randomString, randomInteger, strings.Join(roleAssignes, "\n\n"), roleAssigneName1, roleAssigneName2)
 }

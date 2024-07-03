@@ -151,7 +151,7 @@ func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaul
 
 	key := &KeyVaultOrManagedHSMKey{}
 	var err error
-	key.KeyVaultKeyID, err = parse.ParseOptionallyVersionedNestedItemID(id)
+	key.KeyVaultKeyID, err = parse.ParseOptionallyVersionedNestedKeyID(id)
 	if err == nil {
 		return key, nil
 	}
