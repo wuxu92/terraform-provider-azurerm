@@ -123,11 +123,13 @@ func ExpandKeyVaultOrManagedHSMKey(d interface{}, hasVersion *bool, hsmEnv envir
 }
 
 // ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey
-// if return nil, nil, it means no key_vault_key_id or managed_hsm_key_id is specified
+// d: should be one of *pluginsdk.ResourceData or map[string]interface{}
 // hasVersion:
 //   - nil: both versioned or versionless are ok
 //   - true: must have version
 //   - false: must not have vesrion
+//
+// if return nil, nil, it means no key_vault_key_id or managed_hsm_key_id is specified
 func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *bool, keyVaultFieldName, hsmFieldName string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
 	key := &KeyVaultOrManagedHSMKey{}
 	var err error
@@ -141,7 +143,8 @@ func ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d interface{}, hasVersion *
 	} else if obj, ok := d.(map[string]interface{}); ok {
 		if keyRaw, ok := obj[keyVaultFieldName]; ok {
 			vaultKeyStr, _ = keyRaw.(string)
-		} else if keyRaw, ok = obj[hsmFieldName]; ok {
+		}
+		if keyRaw, ok := obj[hsmFieldName]; ok {
 			hsmKeyStr, _ = keyRaw.(string)
 		}
 	} else {
