@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance/check"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
 )
@@ -330,6 +331,24 @@ func TestAccPostgresqlFlexibleServer_createWithCustomerManagedKey(t *testing.T) 
 	})
 }
 
+func TestAccPostgresqlFlexibleServer_createWithManagedHSMKey(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_postgresql_flexible_server", "test")
+	r := PostgresqlFlexibleServerResource{}
+	t.Skip(r.withManagedHSMKey(data))
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.withManagedHSMKey(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That("azurerm_postgresql_flexible_server.test").Key("customer_managed_key.0.key_vault_key_id").Exists(),
+				check.That("azurerm_postgresql_flexible_server.test").Key("customer_managed_key.0.primary_user_assigned_identity_id").Exists(),
+			),
+		},
+		data.ImportStep("administrator_password", "create_mode"),
+	})
+}
+
 func TestAccPostgresqlFlexibleServer_replica(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_postgresql_flexible_server", "test")
 	r := PostgresqlFlexibleServerResource{}
@@ -397,6 +416,21 @@ func TestAccPostgresqlFlexibleServer_upgradeVersion(t *testing.T) {
 }
 
 func TestAccPostgresqlFlexibleServer_enableGeoRedundantBackup(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_postgresql_flexible_server", "test")
+	r := PostgresqlFlexibleServerResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.enableGeoRedundantBackup(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep("administrator_password", "create_mode"),
+	})
+}
+
+func TestAccPostgresqlFlexibleServer_enableGeoRedundantBackupMangedHSMKey(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_postgresql_flexible_server", "test")
 	r := PostgresqlFlexibleServerResource{}
 
@@ -1216,6 +1250,56 @@ resource "azurerm_postgresql_flexible_server" "test" {
   }
 }
 `, r.cmkTemplate(data), data.RandomInteger)
+}
+
+func (r PostgresqlFlexibleServerResource) withManagedHSMKey(data acceptance.TestData) string {
+	hsmTempalte := customermanagedkeys.ManagedHSMKeyTempalte(data.RandomInteger, data.RandomString, []string{"azurerm_user_assigned_identity.test.principal_id"})
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {
+    key_vault {
+      purge_soft_delete_on_destroy       = false
+      purge_soft_deleted_keys_on_destroy = false
+    }
+  }
+}
+
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-postgresql-%[1]d"
+  location = "%[2]s"
+}
+
+resource "azurerm_user_assigned_identity" "test" {
+  name                = "acctestmi%[2]s"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+}
+%[3]s
+
+resource "azurerm_postgresql_flexible_server" "test" {
+  name                   = "acctest-fs-%[1]d"
+  resource_group_name    = azurerm_resource_group.test.name
+  location               = azurerm_resource_group.test.location
+  administrator_login    = "adminTerraform"
+  administrator_password = "QAZwsx123"
+  storage_mb             = 32768
+  version                = "12"
+  sku_name               = "B_Standard_B1ms"
+  zone                   = "1"
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.test.id]
+  }
+
+  customer_managed_key {
+    managed_hsm_key_id                  = azurerm_key_vault_managed_hardware_security_module_key.test.id
+    primary_user_assigned_identity_id = azurerm_user_assigned_identity.test.id
+  }
+}
+`, data.RandomInteger, data.Locations.Primary, hsmTempalte)
 }
 
 func (r PostgresqlFlexibleServerResource) replica(data acceptance.TestData) string {
