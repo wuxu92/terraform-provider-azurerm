@@ -1269,7 +1269,7 @@ func expandFlexibleServerDataEncryption(input []interface{}, hsmEnv environments
 		Type: &det,
 	}
 
-	if cmk, _ := customermanagedkeys.ExpandKeyVaultOrManagedHSMKey(v, nil, hsmEnv); cmk != nil {
+	if cmk, _ := customermanagedkeys.ExpandKeyVaultOrManagedHSMKey(v, customermanagedkeys.OptionallyVersioned, hsmEnv); cmk != nil {
 		dataEncryption.PrimaryKeyURI = pointer.To(cmk.ID())
 	}
 
@@ -1278,7 +1278,7 @@ func expandFlexibleServerDataEncryption(input []interface{}, hsmEnv environments
 	}
 
 	if geoCMK, _ := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(
-		v, nil, "geo_backup_key_vault_key_id", "geo_backup_managed_hsm_key_id", hsmEnv); geoCMK != nil {
+		v, customermanagedkeys.OptionallyVersioned, "geo_backup_key_vault_key_id", "geo_backup_managed_hsm_key_id", hsmEnv); geoCMK != nil {
 		dataEncryption.GeoBackupKeyURI = pointer.To(geoCMK.ID())
 	}
 
