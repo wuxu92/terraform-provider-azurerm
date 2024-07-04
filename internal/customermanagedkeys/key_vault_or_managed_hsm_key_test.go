@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	cmk "github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
 	hsmParse "github.com/hashicorp/terraform-provider-azurerm/internal/services/managedhsm/parse"
@@ -35,7 +35,7 @@ func buildHSMData(key, value string) interface{} {
 func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 	type args struct {
 		d                 interface{}
-		hasVersion        *bool
+		hasVersion        customermanagedkeys.VersionRequireness
 		keyVaultFieldName string
 		hsmFieldName      string
 		hsmEnv            environments.Api
@@ -47,6 +47,7 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name: "success with key_vault_key_id",
 			args: args{
 				d:                 buildKeyVaultData("key_vault_key_id", "https://test.keyvault.azure.net/keys/test-key-name"),
 				keyVaultFieldName: "key_vault_key_id",
@@ -60,6 +61,7 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 			},
 		},
 		{
+			name: "fail with wrong item type: cert",
 			args: args{
 				d:                 buildKeyVaultData("key_vault_key_id", "https://test.keyvault.azure.net/certs/test-key-name"),
 				keyVaultFieldName: "key_vault_key_id",
@@ -67,6 +69,7 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "fail with wrong field name",
 			args: args{
 				d:                 buildKeyVaultData("key_vault_key_url", "https://test.keyvault.azure.net/keys/test-key-name"),
 				keyVaultFieldName: "key_vault_key_id",
@@ -75,10 +78,21 @@ func TestExpandKeyVaultOrManagedHSMKeyKey(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "fail with no version provided",
+			args: args{
+				d:                 buildKeyVaultData("key_vault_key_id", "https://test.keyvault.azure.net/keys/test-key-name3"),
+				keyVaultFieldName: "key_vault_key_id",
+				hasVersion:        customermanagedkeys.Versioned,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "success with managed_hsm_key_id",
 			args: args{
 				d:            buildHSMData("managed_hsm_key_id", "https://test.managedhsm.azure.net/keys/test-key-name"),
 				hsmFieldName: "managed_hsm_key_id",
-				hasVersion:   pointer.To(false),
+				hasVersion:   customermanagedkeys.Versionless,
 			},
 			want: &cmk.KeyVaultOrManagedHSMKey{
 				ManagedHSMKeyVersionlessId: &hsmParse.ManagedHSMDataPlaneVersionlessKeyId{
