@@ -262,7 +262,7 @@ An `initial_replica_set` block exports the following:
 
 * `external_access_ip_address` - The publicly routable IP address for the domain controllers in the initial replica set.
 
-* `location` - The Azure location in which the initialreplica set resides.
+* `location` - The Azure location in which the initial replica set resides.
 
 * `id` - A unique ID for the replica set.
 
