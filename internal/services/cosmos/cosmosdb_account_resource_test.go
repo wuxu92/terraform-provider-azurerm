@@ -3552,7 +3552,7 @@ resource "azurerm_cosmosdb_account" "test" {
   resource_group_name = azurerm_resource_group.test.name
   offer_type          = "Standard"
   kind                = "MongoDB"
-  managed_hsm_key_id  = "https://kvhsm241023142411745579.managedhsm.azure.net/keys/acctestHSMK-241023142411745579" # azurerm_key_vault_managed_hardware_security_module_key.test.id
+  managed_hsm_key_id  = azurerm_key_vault_managed_hardware_security_module_key.test.id
 
   capabilities {
     name = "EnableMongo"
