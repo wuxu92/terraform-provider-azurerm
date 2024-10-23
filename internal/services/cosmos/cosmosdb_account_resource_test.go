@@ -12,11 +12,11 @@ import (
 	"testing"
 
 	"github.com/hashicorp/go-azure-sdk/resource-manager/cosmosdb/2024-05-15/cosmosdb"
+	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/azure"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance/check"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/features"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/cosmos/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
@@ -3385,8 +3385,10 @@ resource "azurerm_cosmosdb_account" "test" {
 
 func (CosmosDBAccountResource) managedHSMKey(data acceptance.TestData) string {
 	// Purge Protection must be enabled to configure Managed HSM Key: https://learn.microsoft.com/en-us/azure/cosmos-db/how-to-setup-customer-managed-keys-mhsm#configure-your-azure-managed-hsm-key-vault
-	const enablePurgeProtection = true
-	hsmTemplate := customermanagedkeys.ManagedHSMKeyTempalte(data.RandomInteger, data.RandomString, enablePurgeProtection, []string{"data.azuread_service_principal.cosmosdb.id"})
+	// hsmTemplate := customermanagedkeys.ManagedHSMKeyTempalte(data.RandomInteger, data.RandomString, enablePurgeProtection, []string{"data.azuread_service_principal.cosmosdb.id"})
+	raName1, _ := uuid.GenerateUUID()
+	raName2, _ := uuid.GenerateUUID()
+	raName3, _ := uuid.GenerateUUID()
 	return fmt.Sprintf(`
 provider "azurerm" {
   features {}
@@ -3411,15 +3413,146 @@ data "azuread_service_principal" "cosmosdb" {
   display_name = "Azure Cosmos DB"
 }
 
-%[3]s
+resource "azurerm_key_vault" "test" {
+  name                       = "acc%[1]d"
+  location                   = azurerm_resource_group.test.location
+  resource_group_name        = azurerm_resource_group.test.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  soft_delete_retention_days = 7
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+    certificate_permissions = [
+      "Create",
+      "Delete",
+      "DeleteIssuers",
+      "Get",
+      "Purge",
+      "Update"
+    ]
+  }
+  tags = {
+    environment = "Production"
+  }
+}
+
+resource "azurerm_key_vault_certificate" "cert" {
+  count        = 3
+  name         = "acchsmcert${count.index}"
+  key_vault_id = azurerm_key_vault.test.id
+  certificate_policy {
+    issuer_parameters {
+      name = "Self"
+    }
+    key_properties {
+      exportable = true
+      key_size   = 2048
+      key_type   = "RSA"
+      reuse_key  = true
+    }
+    lifetime_action {
+      action {
+        action_type = "AutoRenew"
+      }
+      trigger {
+        days_before_expiry = 30
+      }
+    }
+    secret_properties {
+      content_type = "application/x-pkcs12"
+    }
+    x509_certificate_properties {
+      extended_key_usage = []
+      key_usage = [
+        "cRLSign",
+        "dataEncipherment",
+        "digitalSignature",
+        "keyAgreement",
+        "keyCertSign",
+        "keyEncipherment",
+      ]
+      subject            = "CN=hello-world"
+      validity_in_months = 12
+    }
+  }
+}
+
+resource "azurerm_key_vault_managed_hardware_security_module" "test" {
+  name                       = "kvHsm%[1]d"
+  resource_group_name        = azurerm_resource_group.test.name
+  location                   = azurerm_resource_group.test.location
+  sku_name                   = "Standard_B1"
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  admin_object_ids           = [data.azurerm_client_config.current.object_id]
+  purge_protection_enabled   = true
+  soft_delete_retention_days = 7
+
+  security_domain_key_vault_certificate_ids = [for cert in azurerm_key_vault_certificate.cert : cert.id]
+  security_domain_quorum                    = 3
+}
+
+data "azurerm_key_vault_managed_hardware_security_module_role_definition" "crypto-officer" {
+  name           = "515eb02d-2335-4d2d-92f2-b1cbdf9c3778"
+  managed_hsm_id = azurerm_key_vault_managed_hardware_security_module.test.id
+}
+
+data "azurerm_key_vault_managed_hardware_security_module_role_definition" "crypto-user" {
+  name           = "21dbd100-6940-42c2-9190-5d6cb909625b"
+  managed_hsm_id = azurerm_key_vault_managed_hardware_security_module.test.id
+}
+
+data "azurerm_key_vault_managed_hardware_security_module_role_definition" "encrypt-user" {
+  name           = "33413926-3206-4cdd-b39a-83574fe37a17"
+  managed_hsm_id = azurerm_key_vault_managed_hardware_security_module.test.id
+}
+
+resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "client1" {
+  managed_hsm_id     = azurerm_key_vault_managed_hardware_security_module.test.id
+  name               = "%[3]s"
+  scope              = "/keys"
+  role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.crypto-officer.resource_manager_id
+  principal_id       = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "client2" {
+  managed_hsm_id     = azurerm_key_vault_managed_hardware_security_module.test.id
+  name               = "%[4]s"
+  scope              = "/keys"
+  role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.crypto-user.resource_manager_id
+  principal_id       = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_key_vault_managed_hardware_security_module_role_assignment" "racosmos" {
+  managed_hsm_id     = azurerm_key_vault_managed_hardware_security_module.test.id
+  name               = "%[5]s"
+  scope              = "/keys"
+  role_definition_id = data.azurerm_key_vault_managed_hardware_security_module_role_definition.encrypt-user.resource_manager_id
+  principal_id       = data.azuread_service_principal.cosmosdb.object_id
+
+  depends_on = [azurerm_key_vault_managed_hardware_security_module_key.test]
+}
+
+resource "azurerm_key_vault_managed_hardware_security_module_key" "test" {
+  name           = "acctestHSMK-%[1]d"
+  managed_hsm_id = azurerm_key_vault_managed_hardware_security_module.test.id
+  key_type       = "RSA-HSM"
+  key_size       = 2048
+  key_opts       = ["unwrapKey", "wrapKey"]
+
+  depends_on = [
+    azurerm_key_vault_managed_hardware_security_module_role_assignment.client1,
+    azurerm_key_vault_managed_hardware_security_module_role_assignment.client2
+  ]
+}
 
 resource "azurerm_cosmosdb_account" "test" {
-  name                = "acctest-ca-%[1]d"
+  name                = "acc-ca-%[1]d"
   location            = azurerm_resource_group.test.location
   resource_group_name = azurerm_resource_group.test.name
   offer_type          = "Standard"
   kind                = "MongoDB"
-  managed_hsm_key_id  = azurerm_key_vault_managed_hardware_security_module_key.test.id
+  managed_hsm_key_id  = "https://kvhsm241023142411745579.managedhsm.azure.net/keys/acctestHSMK-241023142411745579" # azurerm_key_vault_managed_hardware_security_module_key.test.id
 
   capabilities {
     name = "EnableMongo"
@@ -3441,9 +3574,9 @@ resource "azurerm_cosmosdb_account" "test" {
     ]
   }
 
-  depends_on = [azurerm_key_vault_managed_hardware_security_module_role_assignment.ra0]
+  // depends_on = [azurerm_key_vault_managed_hardware_security_module_role_assignment.racosmos]
 }
-`, data.RandomInteger, data.Locations.Primary, hsmTemplate)
+`, data.RandomInteger, data.Locations.Primary, raName1, raName2, raName3)
 }
 
 func (CosmosDBAccountResource) systemAssignedUserAssignedIdentity(data acceptance.TestData, consistency cosmosdb.DefaultConsistencyLevel) string {
