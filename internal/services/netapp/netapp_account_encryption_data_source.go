@@ -43,31 +43,34 @@ func (r NetAppAccountEncryptionDataSource) Arguments() map[string]*pluginsdk.Sch
 			Description:  "The ID of the NetApp Account where encryption will be set.",
 			ValidateFunc: netAppValidate.ValidateNetAppAccountID,
 		},
-
-		"user_assigned_identity_id": {
-			Type:          pluginsdk.TypeString,
-			Optional:      true,
-			Description:   "The resource ID of the User Assigned Identity to use for encryption.",
-			ConflictsWith: []string{"system_assigned_identity_principal_id"},
-		},
-
-		"system_assigned_identity_principal_id": {
-			Type:          pluginsdk.TypeString,
-			Optional:      true,
-			Description:   "The Principal ID of the System Assigned Identity to use for encryption.",
-			ConflictsWith: []string{"user_assigned_identity_id"},
-		},
-
-		"encryption_key": {
-			Type:        pluginsdk.TypeString,
-			Optional:    true,
-			Description: "The versionless encryption key url.",
-		},
 	}
 }
 
 func (r NetAppAccountEncryptionDataSource) Attributes() map[string]*pluginsdk.Schema {
-	return map[string]*pluginsdk.Schema{}
+	return map[string]*pluginsdk.Schema{
+		"user_assigned_identity_id": {
+			Type:        pluginsdk.TypeString,
+			Computed:    true,
+			Description: "The resource ID of the User Assigned Identity to use for encryption.",
+		},
+
+		"system_assigned_identity_principal_id": {
+			Type:        pluginsdk.TypeString,
+			Computed:    true,
+			Description: "The Principal ID of the System Assigned Identity to use for encryption.",
+		},
+
+		"encryption_key": {
+			Type:        pluginsdk.TypeString,
+			Computed:    true,
+			Description: "The versionless encryption key url.",
+		},
+		"encryption_managed_hsm_key": {
+			Type:        pluginsdk.TypeString,
+			Computed:    true,
+			Description: "The versionless managed HSM key id.",
+		},
+	}
 }
 
 func (r NetAppAccountEncryptionDataSource) Read() sdk.ResourceFunc {
@@ -105,9 +108,17 @@ func (r NetAppAccountEncryptionDataSource) Read() sdk.ResourceFunc {
 				return err
 			}
 
-			state.EncryptionKey, err = flattenEncryption(model.Properties.Encryption)
+			encription, err := flattenEncryption(model.Properties.Encryption, metadata.Client.Account.Environment.ManagedHSM)
 			if err != nil {
 				return err
+			}
+			if encription != nil {
+				if encription.KeyVaultKeyId != nil {
+					state.EncryptionKey = encription.KeyVaultKeyId.VersionlessID()
+				} else if encription.ManagedHSMKeyVersionlessId != nil {
+					state.EncryptionManagedHSMKey = encription.ManagedHSMKeyVersionlessId.ID()
+				}
+
 			}
 
 			if len(anfAccountIdentityFlattened) > 0 {

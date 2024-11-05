@@ -12,6 +12,7 @@ type NetAppAccountEncryption struct {
 	UserAssignedIdentityID            string `tfschema:"user_assigned_identity_id"`
 	SystemAssignedIdentityPrincipalID string `tfschema:"system_assigned_identity_principal_id"`
 	EncryptionKey                     string `tfschema:"encryption_key"`
+	EncryptionManagedHSMKey           string `tfschema:"encryption_managed_hsm_key"`
 }
 
 type NetAppAccountEncryptionDataSourceModel struct {
@@ -19,6 +20,7 @@ type NetAppAccountEncryptionDataSourceModel struct {
 	UserAssignedIdentityID            string `tfschema:"user_assigned_identity_id"`
 	SystemAssignedIdentityPrincipalID string `tfschema:"system_assigned_identity_principal_id"`
 	EncryptionKey                     string `tfschema:"encryption_key"`
+	EncryptionManagedHSMKey           string `tfschema:"encryption_managed_hsm_key"`
 }
 
 type NetAppVolumeGroupVolume struct {

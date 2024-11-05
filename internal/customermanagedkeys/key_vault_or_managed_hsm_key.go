@@ -2,6 +2,7 @@ package customermanagedkeys
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
@@ -192,4 +193,10 @@ func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaul
 	}
 
 	return nil, fmt.Errorf("cannot parse given id to key vault key nor managed hsm key: %s", id)
+}
+
+func FlattenKeyVaultOrManagedHSMIDByComponents(baseUri, name, version string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
+	id := fmt.Sprintf("%s/keys/%s/%s", strings.TrimRight(baseUri, "/"), name, version)
+	id = strings.TrimSuffix(id, "/")
+	return FlattenKeyVaultOrManagedHSMID(id, hsmEnv)
 }

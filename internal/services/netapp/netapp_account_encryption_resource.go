@@ -14,12 +14,14 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/identity"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/netapp/2023-05-01/netappaccounts"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/locks"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
-	keyVaultClient "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/client"
-	keyVaultParse "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
 	keyVaultValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/validate"
+	hsmValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/managedhsm/validate"
 	netAppModels "github.com/hashicorp/terraform-provider-azurerm/internal/services/netapp/models"
 	netAppValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/netapp/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
@@ -70,9 +72,18 @@ func (r NetAppAccountEncryptionResource) Arguments() map[string]*pluginsdk.Schem
 
 		"encryption_key": {
 			Type:         pluginsdk.TypeString,
-			Required:     true,
+			Optional:     true,
 			ValidateFunc: keyVaultValidate.NestedItemIdWithOptionalVersion,
+			AtLeastOneOf: []string{"encryption_key", "encryption_managed_hsm_key"},
 			Description:  "The versionless encryption key url.",
+		},
+
+		"encryption_managed_hsm_key": {
+			Type:         pluginsdk.TypeString,
+			Optional:     true,
+			ValidateFunc: hsmValidate.ManagedHSMDataPlaneVersionlessKeyID,
+			AtLeastOneOf: []string{"encryption_key", "encryption_managed_hsm_key"},
+			Description:  "The versionless managed HSM key id.",
 		},
 	}
 }
@@ -86,8 +97,6 @@ func (r NetAppAccountEncryptionResource) Create() sdk.ResourceFunc {
 		Timeout: 90 * time.Minute,
 		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
 			client := metadata.Client.NetApp.AccountClient
-			keyVaultsClient := metadata.Client.KeyVault
-			subscriptionId := commonids.NewSubscriptionID(metadata.Client.Account.SubscriptionId)
 
 			var model netAppModels.NetAppAccountEncryption
 			if err := metadata.Decode(&model); err != nil {
@@ -122,7 +131,7 @@ func (r NetAppAccountEncryptionResource) Create() sdk.ResourceFunc {
 				Properties: &netappaccounts.AccountProperties{},
 			}
 
-			encryptionExpanded, err := expandEncryption(ctx, model.EncryptionKey, keyVaultsClient, subscriptionId, pointer.To(model))
+			encryptionExpanded, err := expandEncryption(ctx, metadata.ResourceData, metadata.Client)
 			if err != nil {
 				return err
 			}
@@ -144,9 +153,6 @@ func (r NetAppAccountEncryptionResource) Update() sdk.ResourceFunc {
 	return sdk.ResourceFunc{
 		Timeout: 120 * time.Minute,
 		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
-			client := metadata.Client.NetApp.AccountClient
-			keyVaultsClient := metadata.Client.KeyVault
-			subscriptionId := commonids.NewSubscriptionID(metadata.Client.Account.SubscriptionId)
 
 			id, err := netappaccounts.ParseNetAppAccountID(metadata.ResourceData.Id())
 			if err != nil {
@@ -156,27 +162,24 @@ func (r NetAppAccountEncryptionResource) Update() sdk.ResourceFunc {
 			locks.ByID(id.ID())
 			defer locks.UnlockByID(id.ID())
 
-			metadata.Logger.Infof("Decoding state for %s", id)
-			var state netAppModels.NetAppAccountEncryption
-			if err := metadata.Decode(&state); err != nil {
-				return err
-			}
-
 			metadata.Logger.Infof("Updating %s", id)
 
 			update := netappaccounts.NetAppAccountPatch{
 				Properties: &netappaccounts.AccountProperties{},
 			}
 
-			if metadata.ResourceData.HasChange("user_assigned_identity_id") || metadata.ResourceData.HasChange("system_assigned_identity_principal_id") || metadata.ResourceData.HasChange("encryption_key") {
-				encryptionExpanded, err := expandEncryption(ctx, state.EncryptionKey, keyVaultsClient, subscriptionId, pointer.To(state))
+			if metadata.ResourceData.HasChange("user_assigned_identity_id") ||
+				metadata.ResourceData.HasChange("system_assigned_identity_principal_id") ||
+				metadata.ResourceData.HasChange("encryption_key") ||
+				metadata.ResourceData.HasChange("encryption_managed_hsm_key") {
+
+				encryptionExpanded, err := expandEncryption(ctx, metadata.ResourceData, metadata.Client)
 				if err != nil {
 					return err
 				}
-
 				update.Properties.Encryption = encryptionExpanded
 
-				if err := client.AccountsUpdateThenPoll(ctx, pointer.From(id), update); err != nil {
+				if err := metadata.Client.NetApp.AccountClient.AccountsUpdateThenPoll(ctx, pointer.From(id), update); err != nil {
 					return fmt.Errorf("updating %s: %+v", id, err)
 				}
 
@@ -195,7 +198,7 @@ func (r NetAppAccountEncryptionResource) Read() sdk.ResourceFunc {
 
 			client := metadata.Client.NetApp.AccountClient
 
-			id, err := netappaccounts.ParseNetAppAccountID((metadata.ResourceData.Id()))
+			id, err := netappaccounts.ParseNetAppAccountID(metadata.ResourceData.Id())
 			if err != nil {
 				return err
 			}
@@ -223,14 +226,21 @@ func (r NetAppAccountEncryptionResource) Read() sdk.ResourceFunc {
 				return err
 			}
 
-			encryptionKey, err := flattenEncryption(existing.Model.Properties.Encryption)
+			model := netAppModels.NetAppAccountEncryption{
+				NetAppAccountID: id.ID(),
+			}
+
+			encryptionKey, err := flattenEncryption(existing.Model.Properties.Encryption, metadata.Client.Account.Environment.ManagedHSM)
 			if err != nil {
 				return err
 			}
 
-			model := netAppModels.NetAppAccountEncryption{
-				NetAppAccountID: id.ID(),
-				EncryptionKey:   encryptionKey,
+			if encryptionKey != nil {
+				if encryptionKey.KeyVaultKeyId != nil {
+					model.EncryptionKey = encryptionKey.KeyVaultKeyId.VersionlessID()
+				} else if encryptionKey.ManagedHSMKeyVersionlessId != nil {
+					model.EncryptionManagedHSMKey = encryptionKey.ManagedHSMKeyVersionlessId.ID()
+				}
 			}
 
 			if len(anfAccountIdentityFlattened) > 0 {
@@ -280,7 +290,8 @@ func (r NetAppAccountEncryptionResource) Delete() sdk.ResourceFunc {
 			}
 
 			update.Properties.Encryption = &netappaccounts.AccountEncryption{}
-
+			// ATTENTION: This actually cannot remove the encryption and nothing is updated in the service.
+			// But it seems just fine to terraform as the encryption is removed from the state.
 			if err := client.AccountsUpdateThenPoll(ctx, pointer.From(id), update); err != nil {
 				return fmt.Errorf("updating %s: %+v", id, err)
 			}
@@ -290,60 +301,61 @@ func (r NetAppAccountEncryptionResource) Delete() sdk.ResourceFunc {
 	}
 }
 
-func expandEncryption(ctx context.Context, input string, keyVaultsClient *keyVaultClient.Client, subscriptionID commonids.SubscriptionId, model *netAppModels.NetAppAccountEncryption) (*netappaccounts.AccountEncryption, error) {
+func expandEncryption(ctx context.Context, d *pluginsdk.ResourceData, clientHub *clients.Client) (*netappaccounts.AccountEncryption, error) {
+	cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d,
+		customermanagedkeys.VersionTypeVersionless, "encryption_key", "encryption_managed_hsm_key",
+		clientHub.Account.Environment.KeyVault, clientHub.Account.Environment.ManagedHSM)
+
+	if err != nil {
+		return nil, fmt.Errorf("expanding customermanagedkeys: %+v", err)
+	}
+
 	encryptionProperty := netappaccounts.AccountEncryption{
 		KeySource: pointer.To(netappaccounts.KeySourceMicrosoftPointNetApp),
 	}
 
-	if input == "" {
+	if cmk == nil {
 		return &encryptionProperty, nil
 	}
 
-	keyId, err := keyVaultParse.ParseOptionallyVersionedNestedKeyID(input)
-	if err != nil {
-		return nil, fmt.Errorf("parsing `key_vault_key_id`: %+v", err)
-	}
-
-	keyVaultID, err := keyVaultsClient.KeyVaultIDFromBaseUrl(ctx, subscriptionID, keyId.KeyVaultBaseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving the resource id the key vault at url %q: %s", keyId.KeyVaultBaseUrl, err)
-	}
-
-	parsedKeyVaultID, err := commonids.ParseKeyVaultID(pointer.From(keyVaultID))
-	if err != nil {
-		return nil, err
-	}
-
-	encryptionIdentity := &netappaccounts.EncryptionIdentity{}
-
-	if model.UserAssignedIdentityID != "" {
-		encryptionIdentity = &netappaccounts.EncryptionIdentity{
-			UserAssignedIdentity: pointer.To(model.UserAssignedIdentityID),
+	encryptionProperty.KeySource = pointer.To(netappaccounts.KeySourceMicrosoftPointKeyVault)
+	if userIdentity := d.Get("user_assigned_identity_id").(string); userIdentity != "" {
+		encryptionProperty.Identity = &netappaccounts.EncryptionIdentity{
+			UserAssignedIdentity: pointer.To(userIdentity),
 		}
 	}
 
-	encryptionProperty = netappaccounts.AccountEncryption{
-		Identity:  encryptionIdentity,
-		KeySource: pointer.To(netappaccounts.KeySourceMicrosoftPointKeyVault),
-		KeyVaultProperties: &netappaccounts.KeyVaultProperties{
-			KeyName:            keyId.Name,
-			KeyVaultUri:        keyId.KeyVaultBaseUrl,
-			KeyVaultResourceId: parsedKeyVaultID.ID(),
-		},
+	subscriptionID := commonids.NewSubscriptionID(clientHub.Account.SubscriptionId)
+	encryptionProperty.KeyVaultProperties = &netappaccounts.KeyVaultProperties{
+		KeyVaultUri: cmk.BaseUri(),
 	}
 
+	if cmk.KeyVaultKeyId != nil {
+		encryptionProperty.KeyVaultProperties.KeyName = cmk.KeyVaultKeyId.Name
+		keyVaultID, err := clientHub.KeyVault.KeyVaultIDFromBaseUrl(ctx, subscriptionID, cmk.KeyVaultKeyId.KeyVaultBaseUrl)
+		if err != nil {
+			return nil, fmt.Errorf("retrieving the resource id the key vault at url %q: %s", cmk.KeyVaultKeyId.KeyVaultBaseUrl, err)
+		}
+		encryptionProperty.KeyVaultProperties.KeyVaultResourceId = pointer.From(keyVaultID)
+	} else if baseUri := cmk.BaseUri(); baseUri != "" {
+		encryptionProperty.KeyVaultProperties.KeyName = cmk.ManagedHSMKeyVersionlessId.KeyName
+		hsmID, err := clientHub.ManagedHSMs.ManagedHSMIDFromBaseUrl(ctx, subscriptionID, baseUri, nil)
+		if err != nil {
+			return nil, fmt.Errorf("retrieving the resource id the managed hsm at url %q: %s", baseUri, err)
+		}
+		encryptionProperty.KeyVaultProperties.KeyVaultResourceId = hsmID.ID()
+	}
 	return &encryptionProperty, nil
 }
 
-func flattenEncryption(encryptionProperties *netappaccounts.AccountEncryption) (string, error) {
-	if encryptionProperties == nil || *encryptionProperties.KeySource == netappaccounts.KeySourceMicrosoftPointNetApp {
-		return "", nil
+func flattenEncryption(prop *netappaccounts.AccountEncryption, hsmEnv environments.Api) (*customermanagedkeys.KeyVaultOrManagedHSMKey, error) {
+	if prop == nil || prop.KeyVaultProperties == nil || pointer.From(prop.KeySource) == netappaccounts.KeySourceMicrosoftPointNetApp {
+		return nil, nil
 	}
 
-	keyVaultKeyId, err := keyVaultParse.NewNestedItemID(encryptionProperties.KeyVaultProperties.KeyVaultUri, keyVaultParse.NestedItemTypeKey, encryptionProperties.KeyVaultProperties.KeyName, "")
+	cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMIDByComponents(prop.KeyVaultProperties.KeyVaultUri, prop.KeyVaultProperties.KeyName, "", hsmEnv)
 	if err != nil {
-		return "", fmt.Errorf("parsing key vault key id: %+v", err)
+		return nil, fmt.Errorf("flattening key vault or managed hsm id: %+v", err)
 	}
-
-	return keyVaultKeyId.VersionlessID(), nil
+	return cmk, nil
 }
