@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-azure-sdk/resource-manager/sql/2023-08-01-preview/databases"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/sql/2023-08-01-preview/transparentdataencryptions"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/mssql/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
@@ -104,6 +105,11 @@ func dataSourceMsSqlDatabase() *pluginsdk.Resource {
 				Computed: true,
 			},
 
+			"transparent_data_encryption_managed_hsm_key_id": {
+				Type:     pluginsdk.TypeString,
+				Computed: true,
+			},
+
 			"transparent_data_encryption_key_automatic_rotation_enabled": {
 				Type:     pluginsdk.TypeBool,
 				Computed: true,
@@ -150,8 +156,14 @@ func dataSourceMsSqlDatabaseRead(d *pluginsdk.ResourceData, meta interface{}) er
 			d.Set("read_replica_count", props.HighAvailabilityReplicaCount)
 			d.Set("sku_name", props.CurrentServiceObjectiveName)
 			d.Set("zone_redundant", props.ZoneRedundant)
-			d.Set("transparent_data_encryption_key_vault_key_id", props.EncryptionProtector)
 			d.Set("transparent_data_encryption_key_automatic_rotation_enabled", props.EncryptionProtectorAutoRotation)
+
+			if cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(pointer.From(props.EncryptionProtector), meta.(*clients.Client).Account.Environment.ManagedHSM); err != nil {
+				return fmt.Errorf("flattening customermanagedkeys: %+v", err)
+			} else if cmk != nil {
+				d.Set("transparent_data_encryption_key_vault_key_id", cmk.KeyVaultKeyID())
+				d.Set("transparent_data_encryption_managed_hsm_key_id", cmk.ManagedHSMKeyID())
+			}
 
 			maxSizeGb := int64(0)
 			if props.MaxSizeBytes != nil {

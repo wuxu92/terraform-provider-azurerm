@@ -30,9 +30,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/locks"
-	keyVaultParser "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
 	keyVaultValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/validate"
+	hsmValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/managedhsm/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/mssql/helper"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/mssql/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/mssql/validate"
@@ -102,7 +103,8 @@ func resourceMsSqlDatabase() *pluginsdk.Resource {
 				if strings.HasPrefix(strings.ToLower(skuName), "dw") {
 					// NOTE: Got `PerDatabaseCMKDWNotSupported` error from API when `sku_name` is set to `DW100c` and `transparent_data_encryption_key_vault_key_id` is specified
 					keyVaultKeyId := d.Get("transparent_data_encryption_key_vault_key_id").(string)
-					if keyVaultKeyId != "" {
+					hsmKeyId := d.Get("transparent_data_encryption_managed_hsm_key_id").(string)
+					if keyVaultKeyId != "" || hsmKeyId != "" {
 						return fmt.Errorf("database-level CMK is not supported for Data Warehouse SKUs")
 					}
 					// NOTE: Got `InternalServerError` error from API when `sku_name` is set to `DW100c` and `transparent_data_encryption_key_automatic_rotation_enabled` is specified
@@ -168,6 +170,7 @@ func resourceMsSqlDatabaseCreate(d *pluginsdk.ResourceData, meta interface{}) er
 	legacyReplicationLinksClient := meta.(*clients.Client).MSSQL.LegacyReplicationLinksClient
 	resourcesClient := meta.(*clients.Client).Resource.ResourcesClient
 	transparentEncryptionClient := meta.(*clients.Client).MSSQL.TransparentDataEncryptionsClient
+	envs := meta.(*clients.Client).Account.Environment
 
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -443,15 +446,12 @@ func resourceMsSqlDatabaseCreate(d *pluginsdk.ResourceData, meta interface{}) er
 		input.Identity = expandedIdentity
 	}
 
-	if v, ok := d.GetOk("transparent_data_encryption_key_vault_key_id"); ok {
-		keyVaultKeyId := v.(string)
-
-		keyId, err := keyVaultParser.ParseNestedItemID(keyVaultKeyId)
-		if err != nil {
-			return fmt.Errorf("unable to parse key: %q: %+v", keyVaultKeyId, err)
-		}
-
-		input.Properties.EncryptionProtector = pointer.To(keyId.ID())
+	if cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d, customermanagedkeys.VersionTypeVersioned,
+		"transparent_data_encryption_key_vault_key_id", "transparent_data_encryption_managed_hsm_key_id",
+		envs.KeyVault, envs.ManagedHSM); err != nil {
+		return fmt.Errorf("expanding customermanagedkeys: %+v", err)
+	} else if cmk != nil {
+		input.Properties.EncryptionProtector = pointer.To(cmk.ID())
 	}
 
 	if err = client.CreateOrUpdateThenPoll(ctx, id, input); err != nil {
@@ -645,6 +645,7 @@ func resourceMsSqlDatabaseUpdate(d *pluginsdk.ResourceData, meta interface{}) er
 	legacyReplicationLinksClient := meta.(*clients.Client).MSSQL.LegacyReplicationLinksClient
 	resourcesClient := meta.(*clients.Client).Resource.ResourcesClient
 	transparentEncryptionClient := meta.(*clients.Client).MSSQL.TransparentDataEncryptionsClient
+	envs := meta.(*clients.Client).Account.Environment
 
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
@@ -897,15 +898,14 @@ func resourceMsSqlDatabaseUpdate(d *pluginsdk.ResourceData, meta interface{}) er
 		payload.Identity = expanded
 	}
 
-	if d.HasChange("transparent_data_encryption_key_vault_key_id") {
-		keyVaultKeyId := d.Get("transparent_data_encryption_key_vault_key_id").(string)
-
-		keyId, err := keyVaultParser.ParseNestedItemID(keyVaultKeyId)
-		if err != nil {
-			return fmt.Errorf("unable to parse key: %q: %+v", keyVaultKeyId, err)
+	if d.HasChanges("transparent_data_encryption_key_vault_key_id", "transparent_data_encryption_managed_hsm_key_id") {
+		if cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(d, customermanagedkeys.VersionTypeVersioned,
+			"transparent_data_encryption_key_vault_key_id", "transparent_data_encryption_managed_hsm_key_id",
+			envs.KeyVault, envs.ManagedHSM); err != nil {
+			return fmt.Errorf("expanding customermanagedkeys: %+v", err)
+		} else if cmk != nil {
+			props.EncryptionProtector = pointer.To(cmk.ID())
 		}
-
-		props.EncryptionProtector = pointer.To(keyId.ID())
 	}
 
 	if d.HasChange("transparent_data_encryption_key_automatic_rotation_enabled") {
@@ -1214,6 +1214,13 @@ func resourceMsSqlDatabaseRead(d *pluginsdk.ResourceData, meta interface{}) erro
 			d.Set("enclave_type", enclaveType)
 			d.Set("transparent_data_encryption_key_vault_key_id", props.EncryptionProtector)
 			d.Set("transparent_data_encryption_key_automatic_rotation_enabled", pointer.From(props.EncryptionProtectorAutoRotation))
+
+			if cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(pointer.From(props.EncryptionProtector), meta.(*clients.Client).Account.Environment.ManagedHSM); err != nil {
+				return fmt.Errorf("flattening customermanagedkeys: %+v", err)
+			} else if cmk != nil {
+				d.Set("transparent_data_encryption_key_vault_key_id", cmk.KeyVaultKeyID())
+				d.Set("transparent_data_encryption_managed_hsm_key_id", cmk.ManagedHSMKeyID())
+			}
 
 			identity, err := identity.FlattenUserAssignedMap(model.Identity)
 			if err != nil {
@@ -1796,16 +1803,23 @@ func resourceMsSqlDatabaseSchema() map[string]*pluginsdk.Schema {
 		},
 
 		"transparent_data_encryption_key_vault_key_id": {
-			Type:         pluginsdk.TypeString,
-			Optional:     true,
-			ValidateFunc: keyVaultValidate.NestedItemId,
+			Type:          pluginsdk.TypeString,
+			Optional:      true,
+			ValidateFunc:  keyVaultValidate.NestedItemId,
+			ConflictsWith: []string{"transparent_data_encryption_managed_hsm_key_id"},
+		},
+
+		"transparent_data_encryption_managed_hsm_key_id": {
+			Type:          pluginsdk.TypeString,
+			Optional:      true,
+			ValidateFunc:  hsmValidate.ManagedHSMDataPlaneVersionedKeyID,
+			ConflictsWith: []string{"transparent_data_encryption_key_vault_key_id"},
 		},
 
 		"transparent_data_encryption_key_automatic_rotation_enabled": {
-			Type:         pluginsdk.TypeBool,
-			Optional:     true,
-			Default:      false,
-			RequiredWith: []string{"transparent_data_encryption_key_vault_key_id"},
+			Type:     pluginsdk.TypeBool,
+			Optional: true,
+			Default:  false,
 		},
 
 		"secondary_type": {

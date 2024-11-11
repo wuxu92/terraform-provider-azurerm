@@ -160,7 +160,7 @@ resource "azurerm_key_vault_key" "example" {
 
 The following arguments are supported:
 
-* `name` - (Required) The name of the MS SQL Database. Changing this forces a new resource to be created. 
+* `name` - (Required) The name of the MS SQL Database. Changing this forces a new resource to be created.
 
 * `server_id` - (Required) The id of the MS SQL Server on which to create the database. Changing this forces a new resource to be created.
 
@@ -240,7 +240,9 @@ The following arguments are supported:
 
 -> **NOTE:** `transparent_data_encryption_enabled` can only be set to `false` on DW (e.g, DataWarehouse) server SKUs.
 
-* `transparent_data_encryption_key_vault_key_id` - (Optional) The fully versioned `Key Vault` `Key` URL (e.g. `'https://<YourVaultName>.vault.azure.net/keys/<YourKeyName>/<YourKeyVersion>`) to be used as the `Customer Managed Key`(CMK/BYOK) for the `Transparent Data Encryption`(TDE) layer.
+* `transparent_data_encryption_key_vault_key_id` - (Optional) The fully versioned `Key Vault` `Key` URL (e.g. `'https://<YourVaultName>.vault.azure.net/keys/<YourKeyName>/<YourKeyVersion>`) to be used as the `Customer Managed Key`(CMK/BYOK) for the `Transparent Data Encryption`(TDE) layer. Only one of `transparent_data_encryption_key_vault_key_id` or `transparent_data_encryption_managed_hsm_key_id` cant be set.
+
+* `transparent_data_encryption_managed_hsm_key_id` - (Optional) The fully versioned `Managed HSM` `Key` URL (e.g. `'https://<YourVaultName>.managedhsm.azure.net/keys/<YourKeyName>/<YourKeyVersion>`) to be used as the `Customer Managed Key`(CMK/BYOK) for the `Transparent Data Encryption`(TDE) layer. Only one of `transparent_data_encryption_key_vault_key_id` or `transparent_data_encryption_managed_hsm_key_id` cant be set.
 
 ~> **NOTE:** To successfully deploy a `Microsoft SQL Database` in CMK/BYOK TDE the `Key Vault` must have `Soft-delete` and `purge protection` enabled to protect from data loss due to accidental key and/or key vault deletion. The `Key Vault` and the `Microsoft SQL Server` `User Managed Identity Instance` must belong to the same `Azure Active Directory` `tenant`.
 
