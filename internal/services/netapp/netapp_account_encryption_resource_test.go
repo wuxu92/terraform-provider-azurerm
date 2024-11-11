@@ -65,7 +65,6 @@ func TestAccNetAppAccountEncryption_cmkManagedHSMKey(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_netapp_account_encryption", "test")
 	r := NetAppAccountEncryptionResource{}
 
-	data.Locations.Primary = "centralus"
 	data.ResourceTest(t, r, []acceptance.TestStep{
 		{
 			Config: r.cmkManagedHSM(data),
