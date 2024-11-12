@@ -74,7 +74,7 @@ func (r NetAppAccountEncryptionResource) Arguments() map[string]*pluginsdk.Schem
 			Type:         pluginsdk.TypeString,
 			Optional:     true,
 			ValidateFunc: keyVaultValidate.NestedItemIdWithOptionalVersion,
-			AtLeastOneOf: []string{"encryption_key", "encryption_managed_hsm_key"},
+			ExactlyOneOf: []string{"encryption_managed_hsm_key"},
 			Description:  "The versionless encryption key url.",
 		},
 
@@ -82,7 +82,7 @@ func (r NetAppAccountEncryptionResource) Arguments() map[string]*pluginsdk.Schem
 			Type:         pluginsdk.TypeString,
 			Optional:     true,
 			ValidateFunc: hsmValidate.ManagedHSMDataPlaneVersionlessKeyID,
-			AtLeastOneOf: []string{"encryption_key", "encryption_managed_hsm_key"},
+			ExactlyOneOf: []string{"encryption_key"},
 			Description:  "The versionless managed HSM key id.",
 		},
 	}
