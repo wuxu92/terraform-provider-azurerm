@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
@@ -17,14 +18,16 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/tags"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/cognitive/2024-10-01/cognitiveservicesaccounts"
 	search "github.com/hashicorp/go-azure-sdk/resource-manager/search/2022-09-01/services"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/azure"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	commonValidate "github.com/hashicorp/terraform-provider-azurerm/helpers/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/locks"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/cognitive/validate"
-	keyVaultParse "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
 	keyVaultValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/validate"
+	hsmValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/managedhsm/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/network"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/set"
@@ -131,8 +134,19 @@ func resourceCognitiveAccount() *pluginsdk.Resource {
 					Schema: map[string]*pluginsdk.Schema{
 						"key_vault_key_id": {
 							Type:         pluginsdk.TypeString,
-							Required:     true,
+							Optional:     true,
+							ExactlyOneOf: []string{"customer_managed_key.0.managed_hsm_key_id"},
 							ValidateFunc: keyVaultValidate.NestedItemIdWithOptionalVersion,
+						},
+
+						"managed_hsm_key_id": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ExactlyOneOf: []string{"customer_managed_key.0.key_vault_key_id"},
+							ValidateFunc: validation.Any(
+								hsmValidate.ManagedHSMDataPlaneVersionedKeyID,
+								hsmValidate.ManagedHSMDataPlaneVersionlessKeyID,
+							),
 						},
 
 						"identity_client_id": {
@@ -320,6 +334,7 @@ func resourceCognitiveAccount() *pluginsdk.Resource {
 func resourceCognitiveAccountCreate(d *pluginsdk.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Cognitive.AccountsClient
 	subscriptionId := meta.(*clients.Client).Account.SubscriptionId
+	envs := meta.(*clients.Client).Account.Environment
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -370,6 +385,11 @@ func resourceCognitiveAccountCreate(d *pluginsdk.ResourceData, meta interface{})
 		return err
 	}
 
+	encryption, err := expandCognitiveAccountCustomerManagedKey(d.Get("customer_managed_key").([]interface{}), envs.KeyVault, envs.ManagedHSM)
+	if err != nil {
+		return fmt.Errorf("expanding `customer_managed_key`: %+v", err)
+	}
+
 	props := cognitiveservicesaccounts.Account{
 		Kind:     utils.String(kind),
 		Location: utils.String(azure.NormalizeLocation(d.Get("location").(string))),
@@ -384,7 +404,7 @@ func resourceCognitiveAccountCreate(d *pluginsdk.ResourceData, meta interface{})
 			RestrictOutboundNetworkAccess: utils.Bool(d.Get("outbound_network_access_restricted").(bool)),
 			DisableLocalAuth:              utils.Bool(!d.Get("local_auth_enabled").(bool)),
 			DynamicThrottlingEnabled:      utils.Bool(d.Get("dynamic_throttling_enabled").(bool)),
-			Encryption:                    expandCognitiveAccountCustomerManagedKey(d.Get("customer_managed_key").([]interface{})),
+			Encryption:                    encryption,
 		},
 		Tags: tags.Expand(d.Get("tags").(map[string]interface{})),
 	}
@@ -417,6 +437,7 @@ func resourceCognitiveAccountCreate(d *pluginsdk.ResourceData, meta interface{})
 
 func resourceCognitiveAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Cognitive.AccountsClient
+	envs := meta.(*clients.Client).Account.Environment
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -456,6 +477,11 @@ func resourceCognitiveAccountUpdate(d *pluginsdk.ResourceData, meta interface{})
 		return err
 	}
 
+	encryption, err := expandCognitiveAccountCustomerManagedKey(d.Get("customer_managed_key").([]interface{}), envs.KeyVault, envs.ManagedHSM)
+	if err != nil {
+		return fmt.Errorf("expanding `customer_managed_key`: %+v", err)
+	}
+
 	props := cognitiveservicesaccounts.Account{
 		Sku: &sku,
 		Properties: &cognitiveservicesaccounts.AccountProperties{
@@ -468,7 +494,7 @@ func resourceCognitiveAccountUpdate(d *pluginsdk.ResourceData, meta interface{})
 			RestrictOutboundNetworkAccess: utils.Bool(d.Get("outbound_network_access_restricted").(bool)),
 			DisableLocalAuth:              utils.Bool(!d.Get("local_auth_enabled").(bool)),
 			DynamicThrottlingEnabled:      utils.Bool(d.Get("dynamic_throttling_enabled").(bool)),
-			Encryption:                    expandCognitiveAccountCustomerManagedKey(d.Get("customer_managed_key").([]interface{})),
+			Encryption:                    encryption,
 		},
 		Tags: tags.Expand(d.Get("tags").(map[string]interface{})),
 	}
@@ -593,7 +619,7 @@ func resourceCognitiveAccountRead(d *pluginsdk.ResourceData, meta interface{}) e
 				}
 			}
 
-			customerManagedKey, err := flattenCognitiveAccountCustomerManagedKey(props.Encryption)
+			customerManagedKey, err := flattenCognitiveAccountCustomerManagedKey(props.Encryption, meta.(*clients.Client).Account.Environment.ManagedHSM)
 			if err != nil {
 				return err
 			}
@@ -827,53 +853,56 @@ func flattenCognitiveAccountStorage(input *[]cognitiveservicesaccounts.UserOwned
 	return results
 }
 
-func expandCognitiveAccountCustomerManagedKey(input []interface{}) *cognitiveservicesaccounts.Encryption {
+func expandCognitiveAccountCustomerManagedKey(input []interface{}, keyVaultEnv, hsmEnv environments.Api) (*cognitiveservicesaccounts.Encryption, error) {
 	if len(input) == 0 || input[0] == nil {
-		return nil
+		return nil, nil
 	}
 
 	v := input[0].(map[string]interface{})
-	keyId, _ := keyVaultParse.ParseOptionallyVersionedNestedItemID(v["key_vault_key_id"].(string))
-	keySource := cognitiveservicesaccounts.KeySourceMicrosoftPointKeyVault
-
-	var identity string
-	if value := v["identity_client_id"]; value != nil && value != "" {
-		identity = value.(string)
+	var identityClientID string
+	if value, ok := v["identity_client_id"]; ok {
+		identityClientID = value.(string)
 	}
 
-	return &cognitiveservicesaccounts.Encryption{
-		KeySource: &keySource,
-		KeyVaultProperties: &cognitiveservicesaccounts.KeyVaultProperties{
-			KeyName:          utils.String(keyId.Name),
-			KeyVersion:       utils.String(keyId.Version),
-			KeyVaultUri:      utils.String(keyId.KeyVaultBaseUrl),
-			IdentityClientId: utils.String(identity),
-		},
+	if cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(v, customermanagedkeys.VersionTypeAny,
+		"key_vault_key_id", "managed_hsm_key_id", keyVaultEnv, hsmEnv); err != nil {
+		return nil, err
+	} else if cmk != nil {
+		return &cognitiveservicesaccounts.Encryption{
+			KeySource: pointer.To(cognitiveservicesaccounts.KeySourceMicrosoftPointKeyVault),
+			KeyVaultProperties: &cognitiveservicesaccounts.KeyVaultProperties{
+				KeyName:          pointer.To(cmk.Name()),
+				KeyVersion:       pointer.To(cmk.Version()),
+				KeyVaultUri:      pointer.To(cmk.BaseUri()),
+				IdentityClientId: pointer.To(identityClientID),
+			},
+		}, nil
 	}
+
+	return nil, nil
 }
 
-func flattenCognitiveAccountCustomerManagedKey(input *cognitiveservicesaccounts.Encryption) ([]interface{}, error) {
+func flattenCognitiveAccountCustomerManagedKey(input *cognitiveservicesaccounts.Encryption, hsmEnv environments.Api) ([]interface{}, error) {
 	if input == nil {
 		return []interface{}{}, nil
 	}
 
-	var keyId string
-	var identityClientId string
 	if props := input.KeyVaultProperties; props != nil {
-		keyVaultKeyId, err := keyVaultParse.NewNestedItemID(*props.KeyVaultUri, keyVaultParse.NestedItemTypeKey, *props.KeyName, *props.KeyVersion)
-		if err != nil {
-			return nil, fmt.Errorf("parsing `key_vault_key_id`: %+v", err)
-		}
-		keyId = keyVaultKeyId.ID()
-		if props.IdentityClientId != nil {
-			identityClientId = *props.IdentityClientId
+		if cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMIDByComponents(pointer.From(props.KeyVaultUri),
+			pointer.From(props.KeyName), pointer.From(props.KeyVersion), hsmEnv); err != nil {
+
+			return nil, err
+		} else if cmk != nil {
+
+			return []interface{}{
+				map[string]interface{}{
+					"key_vault_key_id":   cmk.KeyVaultKeyID(),
+					"managed_hsm_key_id": cmk.ManagedHSMKeyID(),
+					"identity_client_id": pointer.From(props.IdentityClientId),
+				},
+			}, nil
 		}
 	}
 
-	return []interface{}{
-		map[string]interface{}{
-			"key_vault_key_id":   keyId,
-			"identity_client_id": identityClientId,
-		},
-	}, nil
+	return nil, nil
 }

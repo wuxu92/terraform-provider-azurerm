@@ -5,6 +5,7 @@ package customermanagedkeys
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/parse"
@@ -64,6 +65,34 @@ func (k *KeyVaultOrManagedHSMKey) ManagedHSMKeyID() string {
 
 	if k != nil && k.ManagedHSMKeyVersionlessId != nil {
 		return k.ManagedHSMKeyVersionlessId.ID()
+	}
+
+	return ""
+}
+
+func (k *KeyVaultOrManagedHSMKey) Name() string {
+	if k.KeyVaultKeyId != nil {
+		return k.KeyVaultKeyId.Name
+	}
+
+	if k.ManagedHSMKeyId != nil {
+		return k.ManagedHSMKeyId.KeyName
+	}
+
+	if k.ManagedHSMKeyVersionlessId != nil {
+		return k.ManagedHSMKeyVersionlessId.KeyName
+	}
+
+	return ""
+}
+
+func (k *KeyVaultOrManagedHSMKey) Version() string {
+	if k.KeyVaultKeyId != nil {
+		return k.KeyVaultKeyId.Version
+	}
+
+	if k.ManagedHSMKeyId != nil {
+		return k.ManagedHSMKeyId.KeyVersion
 	}
 
 	return ""
@@ -195,4 +224,10 @@ func FlattenKeyVaultOrManagedHSMID(id string, hsmEnv environments.Api) (*KeyVaul
 	}
 
 	return nil, fmt.Errorf("cannot parse given id to key vault key nor managed hsm key: %s", id)
+}
+
+func FlattenKeyVaultOrManagedHSMIDByComponents(baseUri, name, version string, hsmEnv environments.Api) (*KeyVaultOrManagedHSMKey, error) {
+	id := fmt.Sprintf("%s/keys/%s/%s", strings.TrimRight(baseUri, "/"), name, version)
+	id = strings.TrimSuffix(id, "/")
+	return FlattenKeyVaultOrManagedHSMID(id, hsmEnv)
 }
