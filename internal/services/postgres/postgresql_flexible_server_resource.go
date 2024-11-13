@@ -21,10 +21,13 @@ import (
 	"github.com/hashicorp/go-azure-sdk/resource-manager/postgresql/2021-06-01/serverrestart"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/postgresql/2023-06-01-preview/servers"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/privatedns/2020-06-01/privatezones"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/azure"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/customermanagedkeys"
 	keyVaultValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/keyvault/validate"
+	hsmValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/managedhsm/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/postgres/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/suppress"
@@ -301,27 +304,60 @@ func resourcePostgresqlFlexibleServer() *pluginsdk.Resource {
 					Schema: map[string]*pluginsdk.Schema{
 						"key_vault_key_id": {
 							Type:         pluginsdk.TypeString,
-							Required:     true,
+							Optional:     true,
+							ExactlyOneOf: []string{"customer_managed_key.0.managed_hsm_key_id"},
 							ValidateFunc: keyVaultValidate.NestedItemIdWithOptionalVersion,
 							RequiredWith: []string{
 								"identity",
 								"customer_managed_key.0.primary_user_assigned_identity_id",
 							},
 						},
+
+						"managed_hsm_key_id": {
+							Type:         pluginsdk.TypeString,
+							Optional:     true,
+							ExactlyOneOf: []string{"customer_managed_key.0.key_vault_key_id"},
+							ValidateFunc: validation.Any(
+								hsmValidate.ManagedHSMDataPlaneVersionedKeyID,
+								hsmValidate.ManagedHSMDataPlaneVersionlessKeyID,
+							),
+							RequiredWith: []string{
+								"identity",
+								"customer_managed_key.0.primary_user_assigned_identity_id",
+							},
+						},
+
 						"primary_user_assigned_identity_id": {
 							Type:         pluginsdk.TypeString,
 							Optional:     true,
 							ValidateFunc: commonids.ValidateUserAssignedIdentityID,
 						},
+
 						"geo_backup_key_vault_key_id": {
-							Type:         pluginsdk.TypeString,
-							Optional:     true,
-							ValidateFunc: keyVaultValidate.NestedItemIdWithOptionalVersion,
+							Type:          pluginsdk.TypeString,
+							Optional:      true,
+							ValidateFunc:  keyVaultValidate.NestedItemIdWithOptionalVersion,
+							ConflictsWith: []string{"customer_managed_key.0.geo_backup_managed_hsm_key_id"},
 							RequiredWith: []string{
 								"identity",
 								"customer_managed_key.0.geo_backup_user_assigned_identity_id",
 							},
 						},
+
+						"geo_backup_managed_hsm_key_id": {
+							Type:     pluginsdk.TypeString,
+							Optional: true,
+							ValidateFunc: validation.Any(
+								hsmValidate.ManagedHSMDataPlaneVersionedKeyID,
+								hsmValidate.ManagedHSMDataPlaneVersionlessKeyID,
+							),
+							ConflictsWith: []string{"customer_managed_key.0.geo_backup_key_vault_key_id"},
+							RequiredWith: []string{
+								"identity",
+								"customer_managed_key.0.geo_backup_user_assigned_identity_id",
+							},
+						},
+
 						"geo_backup_user_assigned_identity_id": {
 							Type:         pluginsdk.TypeString,
 							Optional:     true,
@@ -436,6 +472,7 @@ func resourcePostgresqlFlexibleServer() *pluginsdk.Resource {
 func resourcePostgresqlFlexibleServerCreate(d *pluginsdk.ResourceData, meta interface{}) error {
 	subscriptionId := meta.(*clients.Client).Account.SubscriptionId
 	client := meta.(*clients.Client).Postgres.FlexibleServersClient
+	envs := meta.(*clients.Client).Account.Environment
 	ctx, cancel := timeouts.ForCreate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -536,6 +573,10 @@ func resourcePostgresqlFlexibleServerCreate(d *pluginsdk.ResourceData, meta inte
 		storage.Tier = pointer.To(storageTiers.DefaultTier)
 		log.Printf("[DEBUG]: Default 'storage_tier' Set -> %q\n", storageTiers.DefaultTier)
 	}
+	encryption, err := expandFlexibleServerDataEncryption(d.Get("customer_managed_key").([]interface{}), envs.KeyVault, envs.ManagedHSM)
+	if err != nil {
+		return fmt.Errorf("expanding `customer_managed_key`: %+v", err)
+	}
 
 	parameters := servers.Server{
 		Location: location.Normalize(d.Get("location").(string)),
@@ -544,7 +585,7 @@ func resourcePostgresqlFlexibleServerCreate(d *pluginsdk.ResourceData, meta inte
 			Storage:          storage,
 			HighAvailability: expandFlexibleServerHighAvailability(d.Get("high_availability").([]interface{}), true),
 			Backup:           expandArmServerBackup(d),
-			DataEncryption:   expandFlexibleServerDataEncryption(d.Get("customer_managed_key").([]interface{})),
+			DataEncryption:   encryption,
 		},
 		Sku:  sku,
 		Tags: tags.Expand(d.Get("tags").(map[string]interface{})),
@@ -703,7 +744,7 @@ func resourcePostgresqlFlexibleServerRead(d *pluginsdk.ResourceData, meta interf
 				d.Set("authentication", flattenFlexibleServerAuthConfig(props.AuthConfig))
 			}
 
-			cmk, err := flattenFlexibleServerDataEncryption(props.DataEncryption)
+			cmk, err := flattenFlexibleServerDataEncryption(props.DataEncryption, meta.(*clients.Client).Account.Environment.ManagedHSM)
 			if err != nil {
 				return fmt.Errorf("flattening `customer_managed_key`: %+v", err)
 			}
@@ -735,6 +776,7 @@ func resourcePostgresqlFlexibleServerRead(d *pluginsdk.ResourceData, meta interf
 
 func resourcePostgresqlFlexibleServerUpdate(d *pluginsdk.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Postgres.FlexibleServersClient
+	envs := meta.(*clients.Client).Account.Environment
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -893,7 +935,11 @@ func resourcePostgresqlFlexibleServerUpdate(d *pluginsdk.ResourceData, meta inte
 	}
 
 	if d.HasChange("customer_managed_key") {
-		parameters.Properties.DataEncryption = expandFlexibleServerDataEncryption(d.Get("customer_managed_key").([]interface{}))
+		if encryption, err := expandFlexibleServerDataEncryption(d.Get("customer_managed_key").([]interface{}), envs.KeyVault, envs.ManagedHSM); err != nil {
+			return fmt.Errorf("expanding `customer_managed_key` for %s: %+v", *id, err)
+		} else {
+			parameters.Properties.DataEncryption = encryption
+		}
 	}
 
 	if d.HasChange("identity") {
@@ -1220,9 +1266,9 @@ func flattenFlexibleServerAuthConfig(ac *servers.AuthConfig) interface{} {
 	return result
 }
 
-func expandFlexibleServerDataEncryption(input []interface{}) *servers.DataEncryption {
+func expandFlexibleServerDataEncryption(input []interface{}, kvEnv, hsmEnv environments.Api) (*servers.DataEncryption, error) {
 	if len(input) == 0 {
-		return nil
+		return nil, nil
 	}
 	v := input[0].(map[string]interface{})
 
@@ -1231,34 +1277,44 @@ func expandFlexibleServerDataEncryption(input []interface{}) *servers.DataEncryp
 		Type: &det,
 	}
 
-	if keyVaultKeyId := v["key_vault_key_id"].(string); keyVaultKeyId != "" {
-		dataEncryption.PrimaryKeyURI = utils.String(keyVaultKeyId)
+	if cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKey(v, customermanagedkeys.VersionTypeAny, kvEnv, hsmEnv); err != nil {
+		return nil, fmt.Errorf("expanding key id: %+v", err)
+	} else if cmk != nil {
+		dataEncryption.PrimaryKeyURI = pointer.To(cmk.ID())
 	}
 
 	if primaryUserAssignedIdentityId := v["primary_user_assigned_identity_id"].(string); primaryUserAssignedIdentityId != "" {
 		dataEncryption.PrimaryUserAssignedIdentityId = utils.String(primaryUserAssignedIdentityId)
 	}
 
-	if geoBackupKeyVaultKeyId := v["geo_backup_key_vault_key_id"].(string); geoBackupKeyVaultKeyId != "" {
-		dataEncryption.GeoBackupKeyURI = utils.String(geoBackupKeyVaultKeyId)
+	if cmk, err := customermanagedkeys.ExpandKeyVaultOrManagedHSMKeyWithCustomFieldKey(v, customermanagedkeys.VersionTypeAny,
+		"geo_backup_key_vault_key_id", "geo_backup_managed_hsm_key_id", kvEnv, hsmEnv); err != nil {
+		return nil, fmt.Errorf("expanding geo backup key id: %+v", err)
+	} else if cmk != nil {
+		dataEncryption.GeoBackupKeyURI = pointer.To(cmk.ID())
 	}
 
 	if geoBackupUserAssignedIdentityId := v["geo_backup_user_assigned_identity_id"].(string); geoBackupUserAssignedIdentityId != "" {
 		dataEncryption.GeoBackupUserAssignedIdentityId = utils.String(geoBackupUserAssignedIdentityId)
 	}
 
-	return &dataEncryption
+	return &dataEncryption, nil
 }
 
-func flattenFlexibleServerDataEncryption(de *servers.DataEncryption) ([]interface{}, error) {
+func flattenFlexibleServerDataEncryption(de *servers.DataEncryption, hsmEnv environments.Api) ([]interface{}, error) {
 	if de == nil || *de.Type != servers.ArmServerKeyTypeAzureKeyVault {
 		return []interface{}{}, nil
 	}
 
 	item := map[string]interface{}{}
-	if de.PrimaryKeyURI != nil {
-		item["key_vault_key_id"] = *de.PrimaryKeyURI
+
+	if cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(pointer.From(de.PrimaryKeyURI), hsmEnv); err != nil {
+		return nil, fmt.Errorf("flattening key id: %+v", err)
+	} else if cmk != nil {
+		item["key_vault_key_id"] = cmk.KeyVaultKeyID()
+		item["managed_hsm_key_id"] = cmk.ManagedHSMKeyID()
 	}
+
 	if identity := de.PrimaryUserAssignedIdentityId; identity != nil {
 		parsed, err := commonids.ParseUserAssignedIdentityIDInsensitively(*identity)
 		if err != nil {
@@ -1267,9 +1323,13 @@ func flattenFlexibleServerDataEncryption(de *servers.DataEncryption) ([]interfac
 		item["primary_user_assigned_identity_id"] = parsed.ID()
 	}
 
-	if de.GeoBackupKeyURI != nil {
-		item["geo_backup_key_vault_key_id"] = *de.GeoBackupKeyURI
+	if cmk, err := customermanagedkeys.FlattenKeyVaultOrManagedHSMID(pointer.From(de.GeoBackupKeyURI), hsmEnv); err != nil {
+		return nil, fmt.Errorf("flattening geo backup key id: %+v", err)
+	} else {
+		item["geo_backup_key_vault_key_id"] = cmk.KeyVaultKeyID()
+		item["geo_backup_managed_hsm_key_id"] = cmk.ManagedHSMKeyID()
 	}
+
 	if identity := de.GeoBackupUserAssignedIdentityId; identity != nil {
 		parsed, err := commonids.ParseUserAssignedIdentityIDInsensitively(*identity)
 		if err != nil {

@@ -181,11 +181,17 @@ An `authentication` block supports the following:
 
 A `customer_managed_key` block supports the following:
 
-* `key_vault_key_id` - (Required) The ID of the Key Vault Key.
+* `key_vault_key_id` - (Optional) The ID of the Key Vault Key.
+
+* `managed_hsm_key_id` - (Optional) The ID of the maanged Hardware Security Module Key.
+
+-> **Note:** Must set either `key_vault_key_id` or `managed_hsm_key_id`, but not both.
 
 * `primary_user_assigned_identity_id` - (Optional) Specifies the primary user managed identity id for a Customer Managed Key. Should be added with `identity_ids`.
 
 * `geo_backup_key_vault_key_id` - (Optional) The ID of the geo backup Key Vault Key. It can't cross region and need Customer Managed Key in same region as geo backup.
+
+* `geo_backup_managed_hsm_key_id` - (Optional) The ID of the geo backup managed Hardware Security Module Key. It can't cross region and need Customer Managed Key in same region as geo backup.
 
 * `geo_backup_user_assigned_identity_id` - (Optional) The geo backup user managed identity id for a Customer Managed Key. Should be added with `identity_ids`. It can't cross region and need identity in same region as geo backup.
 
