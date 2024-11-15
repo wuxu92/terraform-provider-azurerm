@@ -183,7 +183,7 @@ A `customer_managed_key` block supports the following:
 
 * `key_vault_key_id` - (Optional) The ID of the Key Vault Key.
 
-* `managed_hsm_key_id` - (Optional) The ID of the maanged Hardware Security Module Key.
+* `managed_hsm_key_id` - (Optional) The ID of the managed Hardware Security Module Key.
 
 -> **Note:** Must set either `key_vault_key_id` or `managed_hsm_key_id`, but not both.
 
