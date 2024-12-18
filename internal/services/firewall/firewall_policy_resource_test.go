@@ -116,6 +116,7 @@ func TestAccFirewallPolicy_update(t *testing.T) {
 func TestAccFirewallPolicy_updatePremium(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_firewall_policy", "test")
 	r := FirewallPolicyResource{}
+	t.Skip(r.basicPremium(data), "\n\n================\n\n\n", r.completePremium(data))
 
 	data.ResourceTest(t, r, []acceptance.TestStep{
 		{

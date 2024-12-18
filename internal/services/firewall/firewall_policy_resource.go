@@ -32,9 +32,9 @@ const AzureFirewallPolicyResourceName = "azurerm_firewall_policy"
 
 func resourceFirewallPolicy() *pluginsdk.Resource {
 	return &pluginsdk.Resource{
-		Create: resourceFirewallPolicyCreateUpdate,
+		Create: resourceFirewallPolicyCreate,
 		Read:   resourceFirewallPolicyRead,
-		Update: resourceFirewallPolicyCreateUpdate,
+		Update: resourceFirewallPolicyUpdate,
 		Delete: resourceFirewallPolicyDelete,
 
 		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
@@ -53,7 +53,7 @@ func resourceFirewallPolicy() *pluginsdk.Resource {
 	}
 }
 
-func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interface{}) error {
+func resourceFirewallPolicyCreate(d *pluginsdk.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Network.FirewallPolicies
 	subscriptionId := meta.(*clients.Client).Account.SubscriptionId
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
@@ -61,17 +61,15 @@ func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interfac
 
 	id := firewallpolicies.NewFirewallPolicyID(subscriptionId, d.Get("resource_group_name").(string), d.Get("name").(string))
 
-	if d.IsNewResource() {
-		resp, err := client.Get(ctx, id, firewallpolicies.DefaultGetOperationOptions())
-		if err != nil {
-			if !response.WasNotFound(resp.HttpResponse) {
-				return fmt.Errorf("checking for existing %s: %+v", id, err)
-			}
+	resp, err := client.Get(ctx, id, firewallpolicies.DefaultGetOperationOptions())
+	if err != nil {
+		if !response.WasNotFound(resp.HttpResponse) {
+			return fmt.Errorf("checking for existing %s: %+v", id, err)
 		}
+	}
 
-		if resp.Model != nil {
-			return tf.ImportAsExistsError("azurerm_firewall_policy", id.ID())
-		}
+	if resp.Model != nil {
+		return tf.ImportAsExistsError("azurerm_firewall_policy", id.ID())
 	}
 
 	props := firewallpolicies.FirewallPolicy{
@@ -84,7 +82,7 @@ func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interfac
 			Insights:             expandFirewallPolicyInsights(d.Get("insights").([]interface{})),
 			ExplicitProxy:        expandFirewallPolicyExplicitProxy(d.Get("explicit_proxy").([]interface{})),
 		},
-		Location: utils.String(location.Normalize(d.Get("location").(string))),
+		Location: pointer.To(location.Normalize(d.Get("location").(string))),
 		Tags:     tags.Expand(d.Get("tags").(map[string]interface{})),
 	}
 	expandedIdentity, err := identity.ExpandSystemAndUserAssignedMap(d.Get("identity").([]interface{}))
@@ -98,7 +96,7 @@ func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interfac
 	}
 
 	if id, ok := d.GetOk("base_policy_id"); ok {
-		props.Properties.BasePolicy = &firewallpolicies.SubResource{Id: utils.String(id.(string))}
+		props.Properties.BasePolicy = &firewallpolicies.SubResource{Id: pointer.To(id.(string))}
 	}
 
 	if v, ok := d.GetOk("sku"); ok {
@@ -109,7 +107,7 @@ func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interfac
 
 	if v, ok := d.GetOk("sql_redirect_allowed"); ok {
 		props.Properties.Sql = &firewallpolicies.FirewallPolicySQL{
-			AllowSqlRedirect: utils.Bool(v.(bool)),
+			AllowSqlRedirect: pointer.To(v.(bool)),
 		}
 	}
 
@@ -133,7 +131,92 @@ func resourceFirewallPolicyCreateUpdate(d *pluginsdk.ResourceData, meta interfac
 	defer locks.UnlockByName(id.FirewallPolicyName, AzureFirewallPolicyResourceName)
 
 	if err := client.CreateOrUpdateThenPoll(ctx, id, props); err != nil {
-		return fmt.Errorf("creating/updating %s: %+v", id, err)
+		return fmt.Errorf("creating %s: %+v", id, err)
+	}
+
+	d.SetId(id.ID())
+
+	return resourceFirewallPolicyRead(d, meta)
+}
+
+func resourceFirewallPolicyUpdate(d *pluginsdk.ResourceData, meta interface{}) error {
+	client := meta.(*clients.Client).Network.FirewallPolicies
+	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
+	defer cancel()
+
+	id, err := firewallpolicies.ParseFirewallPolicyID(d.Id())
+	if err != nil {
+		return err
+	}
+
+	prop := &firewallpolicies.FirewallPolicyPropertiesFormat{
+		Sku: &firewallpolicies.FirewallPolicySku{
+			Tier: pointer.To(firewallpolicies.FirewallPolicySkuTier(d.Get("sku").(string))),
+		},
+		DnsSettings:        expandFirewallPolicyDNSSetting(d.Get("dns").([]interface{})),
+		IntrusionDetection: expandFirewallPolicyIntrusionDetection(d.Get("intrusion_detection").([]interface{})),
+		TransportSecurity:  expandFirewallPolicyTransportSecurity(d.Get("tls_certificate").([]interface{})),
+		ThreatIntelMode:    pointer.To(firewallpolicies.AzureFirewallThreatIntelMode(d.Get("threat_intelligence_mode").(string))),
+		ExplicitProxy:      expandFirewallPolicyExplicitProxy(d.Get("explicit_proxy").([]interface{})),
+	}
+
+	if d.HasChange("threat_intelligence_allowlist") {
+		prop.ThreatIntelWhitelist = expandFirewallPolicyThreatIntelWhitelist(d.Get("threat_intelligence_allowlist").([]interface{}))
+	}
+
+	if d.HasChange("insights") {
+		prop.Insights = expandFirewallPolicyInsights(d.Get("insights").([]interface{}))
+	}
+
+	if d.HasChange("base_policy_id") {
+		prop.BasePolicy = &firewallpolicies.SubResource{Id: pointer.To(d.Get("base_policy_id").(string))}
+	}
+
+	if d.HasChange("sql_redirect_allowed") {
+		prop.Sql = &firewallpolicies.FirewallPolicySQL{
+			AllowSqlRedirect: pointer.To(d.Get("sql_redirect_allowed").(bool)),
+		}
+	}
+
+	if d.HasChange("private_ip_ranges") {
+		privateIPRanges := utils.ExpandStringSlice(d.Get("private_ip_ranges").([]interface{}))
+		prop.Snat = &firewallpolicies.FirewallPolicySNAT{
+			PrivateRanges: privateIPRanges,
+		}
+	}
+
+	if prop.Snat == nil {
+		prop.Snat = &firewallpolicies.FirewallPolicySNAT{}
+	}
+
+	prop.Snat.AutoLearnPrivateRanges = pointer.To(firewallpolicies.AutoLearnPrivateRangesModeDisabled)
+	if d.Get("auto_learn_private_ranges_enabled").(bool) {
+		prop.Snat.AutoLearnPrivateRanges = pointer.To(firewallpolicies.AutoLearnPrivateRangesModeEnabled)
+	}
+
+	props := firewallpolicies.FirewallPolicy{
+		Properties: prop,
+		Location:   pointer.To(location.Normalize(d.Get("location").(string))),
+		Tags:       tags.Expand(d.Get("tags").(map[string]interface{})),
+	}
+
+	if d.HasChange("identity") {
+		expandedIdentity, err := identity.ExpandSystemAndUserAssignedMap(d.Get("identity").([]interface{}))
+		if err != nil {
+			return fmt.Errorf("expanding `identity`: %+v", err)
+		}
+
+		// api will error if TypeNone is passed in
+		if expandedIdentity.Type != identity.TypeNone {
+			props.Identity = expandedIdentity
+		}
+	}
+
+	locks.ByName(id.FirewallPolicyName, AzureFirewallPolicyResourceName)
+	defer locks.UnlockByName(id.FirewallPolicyName, AzureFirewallPolicyResourceName)
+
+	if err := client.CreateOrUpdateThenPoll(ctx, *id, props); err != nil {
+		return fmt.Errorf("updating %s: %+v", id, err)
 	}
 
 	d.SetId(id.ID())
@@ -358,8 +441,8 @@ func expandFirewallPolicyTransportSecurity(input []interface{}) *firewallpolicie
 
 	return &firewallpolicies.FirewallPolicyTransportSecurity{
 		CertificateAuthority: &firewallpolicies.FirewallPolicyCertificateAuthority{
-			KeyVaultSecretId: utils.String(raw["key_vault_secret_id"].(string)),
-			Name:             utils.String(raw["name"].(string)),
+			KeyVaultSecretId: pointer.To(raw["key_vault_secret_id"].(string)),
+			Name:             pointer.To(raw["name"].(string)),
 		},
 	}
 }
@@ -371,8 +454,8 @@ func expandFirewallPolicyInsights(input []interface{}) *firewallpolicies.Firewal
 
 	raw := input[0].(map[string]interface{})
 	output := &firewallpolicies.FirewallPolicyInsights{
-		IsEnabled:             utils.Bool(raw["enabled"].(bool)),
-		RetentionDays:         utils.Int64(int64(raw["retention_in_days"].(int))),
+		IsEnabled:             pointer.To(raw["enabled"].(bool)),
+		RetentionDays:         pointer.To(int64(raw["retention_in_days"].(int))),
 		LogAnalyticsResources: expandFirewallPolicyLogAnalyticsResources(raw["default_log_analytics_workspace_id"].(string), raw["log_analytics_workspace"].([]interface{})),
 	}
 
@@ -390,15 +473,15 @@ func expandFirewallPolicyExplicitProxy(input []interface{}) *firewallpolicies.Ex
 	}
 
 	output := &firewallpolicies.ExplicitProxy{
-		EnableExplicitProxy: utils.Bool(raw["enabled"].(bool)),
-		HTTPPort:            utils.Int64(int64(raw["http_port"].(int))),
-		HTTPSPort:           utils.Int64(int64(raw["https_port"].(int))),
-		PacFilePort:         utils.Int64(int64(raw["pac_file_port"].(int))),
-		PacFile:             utils.String(raw["pac_file"].(string)),
+		EnableExplicitProxy: pointer.To(raw["enabled"].(bool)),
+		HTTPPort:            pointer.To(int64(raw["http_port"].(int))),
+		HTTPSPort:           pointer.To(int64(raw["https_port"].(int))),
+		PacFilePort:         pointer.To(int64(raw["pac_file_port"].(int))),
+		PacFile:             pointer.To(raw["pac_file"].(string)),
 	}
 
 	if val, ok := raw["enable_pac_file"]; ok {
-		output.EnablePacFile = utils.Bool(val.(bool))
+		output.EnablePacFile = pointer.To(val.(bool))
 	}
 
 	return output
@@ -415,9 +498,9 @@ func expandFirewallPolicyLogAnalyticsResources(defaultWorkspaceId string, worksp
 	for _, workspace := range workspaces {
 		workspace := workspace.(map[string]interface{})
 		workspaceList = append(workspaceList, firewallpolicies.FirewallPolicyLogAnalyticsWorkspace{
-			Region: utils.String(location.Normalize(workspace["firewall_location"].(string))),
+			Region: pointer.To(location.Normalize(workspace["firewall_location"].(string))),
 			WorkspaceId: &firewallpolicies.SubResource{
-				Id: utils.String(workspace["id"].(string)),
+				Id: pointer.To(workspace["id"].(string)),
 			},
 		})
 	}
