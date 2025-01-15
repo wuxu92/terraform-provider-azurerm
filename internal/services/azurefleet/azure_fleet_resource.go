@@ -3,13 +3,14 @@ package azurefleet
 import (
 	"context"
 	"fmt"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	computeValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/compute/validate"
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
 	"log"
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	computeValidate "github.com/hashicorp/terraform-provider-azurerm/internal/services/compute/validate"
+	"github.com/hashicorp/terraform-provider-azurerm/utils"
 
 	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
@@ -17,6 +18,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/identity"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/location"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/azurefleet/2024-11-01/fleets"
+	"github.com/hashicorp/go-azure-sdk/sdk/nullable"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
@@ -1593,6 +1595,14 @@ func expandAdditionalLocationProfileModel(inputList []AdditionalLocationProfileM
 		virtualMachineProfileOverrideValue, err := expandBaseVirtualMachineProfileModel(input.VirtualMachineProfileOverride)
 		if err != nil {
 			return nil, err
+		}
+		if osProfile := virtualMachineProfileOverrideValue.OsProfile; osProfile != nil {
+			if osProfile.LinuxConfiguration == nil {
+				osProfile.LinuxConfiguration = nullable.NullValue[*fleets.LinuxConfiguration]()
+			}
+			if osProfile.WindowsConfiguration == nil {
+				osProfile.WindowsConfiguration = nullable.NullValue[*fleets.WindowsConfiguration]()
+			}
 		}
 
 		output.VirtualMachineProfileOverride = virtualMachineProfileOverrideValue

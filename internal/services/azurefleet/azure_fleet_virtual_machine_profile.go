@@ -7,6 +7,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+
 	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
@@ -26,9 +30,6 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/suppress"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 func virtualMachineProfileSchema(required bool) *pluginsdk.Schema {
@@ -564,11 +565,11 @@ func osProfileSchema() *pluginsdk.Schema {
 				},
 
 				"linux_configuration": {
-					Type:          pluginsdk.TypeList,
-					Optional:      true,
-					ForceNew:      true,
-					MaxItems:      1,
-					ConflictsWith: []string{"virtual_machine_profile.0.os_profile.0.windows_configuration"},
+					Type:     pluginsdk.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					// ConflictsWith: []string{"virtual_machine_profile.0.os_profile.0.windows_configuration"},
 					Elem: &pluginsdk.Resource{
 						Schema: map[string]*pluginsdk.Schema{
 							"admin_username": {
@@ -685,11 +686,11 @@ func osProfileSchema() *pluginsdk.Schema {
 				},
 
 				"windows_configuration": {
-					Type:          pluginsdk.TypeList,
-					Optional:      true,
-					ForceNew:      true,
-					MaxItems:      1,
-					ConflictsWith: []string{"virtual_machine_profile.0.os_profile.0.linux_configuration"},
+					Type:     pluginsdk.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					// ConflictsWith: []string{"virtual_machine_profile.0.os_profile.0.linux_configuration"},
 					Elem: &pluginsdk.Resource{
 						Schema: map[string]*pluginsdk.Schema{
 							"admin_username": {

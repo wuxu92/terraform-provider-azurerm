@@ -18,7 +18,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-azure-helpers v0.71.0
 	github.com/hashicorp/go-azure-sdk/resource-manager v0.20241104.1140654
-	github.com/hashicorp/go-azure-sdk/sdk v0.20241104.1140654
+	github.com/hashicorp/go-azure-sdk/sdk v0.20250110.1074108
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-uuid v1.0.3
@@ -98,3 +98,7 @@ require (
 go 1.22.0
 
 toolchain go1.22.7
+
+replace github.com/hashicorp/go-azure-sdk/resource-manager => /home/wuxu/azure/go-azure-sdk/resource-manager
+
+replace github.com/hashicorp/go-azure-sdk/sdk => /home/wuxu/azure/go-azure-sdk/sdk
