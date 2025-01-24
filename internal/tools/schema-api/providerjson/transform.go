@@ -21,6 +21,7 @@ func resourceFromRaw(input *schema.Resource) (*ResourceJSON, error) {
 		translatedSchema[k] = schemaFromRaw(s)
 	}
 	result.Schema = translatedSchema
+	result.DeprecationMessage = input.DeprecationMessage
 
 	if input.Timeouts != nil {
 		timeouts := &ResourceTimeoutJSON{}

@@ -84,8 +84,9 @@ func (b *SchemaJSON) UnmarshalJSON(body []byte) error {
 }
 
 type ResourceJSON struct {
-	Schema   map[string]SchemaJSON `json:"schema"`
-	Timeouts *ResourceTimeoutJSON  `json:"timeouts,omitempty"`
+	Schema             map[string]SchemaJSON `json:"schema"`
+	Timeouts           *ResourceTimeoutJSON  `json:"timeouts,omitempty"`
+	DeprecationMessage string                `json:"deprecaton_message,omitempty"`
 }
 
 type ResourceTimeoutJSON struct {
