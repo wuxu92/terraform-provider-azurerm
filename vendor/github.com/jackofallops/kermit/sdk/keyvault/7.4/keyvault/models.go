@@ -3820,6 +3820,8 @@ type SecretAttributes struct {
 	Updated *date.UnixTime `json:"updated,omitempty"`
 }
 
+var NullUnixTime = &date.UnixTime{}
+
 // MarshalJSON is the custom marshaler for SecretAttributes.
 func (sa SecretAttributes) MarshalJSON() ([]byte, error) {
 	objectMap := make(map[string]interface{})
@@ -3827,10 +3829,18 @@ func (sa SecretAttributes) MarshalJSON() ([]byte, error) {
 		objectMap["enabled"] = sa.Enabled
 	}
 	if sa.NotBefore != nil {
-		objectMap["nbf"] = sa.NotBefore
+		if sa.NotBefore == NullUnixTime {
+			objectMap["nbf"] = nil
+		} else {
+			objectMap["nbf"] = sa.NotBefore
+		}
 	}
 	if sa.Expires != nil {
-		objectMap["exp"] = sa.Expires
+		if sa.Expires == NullUnixTime {
+			objectMap["exp"] = nil
+		} else {
+			objectMap["exp"] = sa.Expires
+		}
 	}
 	return json.Marshal(objectMap)
 }

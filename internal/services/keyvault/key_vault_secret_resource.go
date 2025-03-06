@@ -259,19 +259,27 @@ func resourceKeyVaultSecretUpdate(d *pluginsdk.ResourceData, meta interface{}) e
 
 	secretAttributes := &keyvault.SecretAttributes{}
 
-	if v, ok := d.GetOk("not_before_date"); ok {
-		notBeforeDate, _ := time.Parse(time.RFC3339, v.(string)) // validated by schema
-		notBeforeUnixTime := date.UnixTime(notBeforeDate)
-		secretAttributes.NotBefore = &notBeforeUnixTime
+	if d.HasChange("not_before_date") {
+		if v, ok := d.GetOk("not_before_date"); ok {
+			notBeforeDate, _ := time.Parse(time.RFC3339, v.(string)) // validated by schema
+			notBeforeUnixTime := date.UnixTime(notBeforeDate)
+			secretAttributes.NotBefore = &notBeforeUnixTime
+		} else {
+			secretAttributes.NotBefore = keyvault.NullUnixTime
+		}
 	}
 
-	if v, ok := d.GetOk("expiration_date"); ok {
-		expirationDate, _ := time.Parse(time.RFC3339, v.(string)) // validated by schema
-		expirationUnixTime := date.UnixTime(expirationDate)
-		secretAttributes.Expires = &expirationUnixTime
+	if d.HasChange("expiration_date") {
+		if v, ok := d.GetOk("expiration_date"); ok {
+			expirationDate, _ := time.Parse(time.RFC3339, v.(string)) // validated by schema
+			expirationUnixTime := date.UnixTime(expirationDate)
+			secretAttributes.Expires = &expirationUnixTime
+		} else {
+			secretAttributes.Expires = keyvault.NullUnixTime
+		}
 	}
 
-	if d.HasChange("value") {
+	if d.HasChange("value") || secretAttributes.NotBefore == keyvault.NullUnixTime || secretAttributes.Expires == keyvault.NullUnixTime {
 		// for changing the value of the secret we need to create a new version
 		parameters := keyvault.SecretSetParameters{
 			Value:            utils.String(value),
