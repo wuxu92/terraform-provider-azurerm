@@ -23,6 +23,8 @@ import (
 	"github.com/hashicorp/go-azure-sdk/resource-manager/network/2023-11-01/serviceendpointpolicies"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/network/2023-11-01/subnets"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/network/2024-05-01/virtualnetworks"
+	client2 "github.com/hashicorp/go-azure-sdk/sdk/client"
+	"github.com/hashicorp/go-azure-sdk/sdk/client/resourcemanager"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/locks"
@@ -289,6 +291,14 @@ func resourceVirtualNetworkCreate(d *pluginsdk.ResourceData, meta interface{}) e
 	defer cancel()
 
 	id := commonids.NewVirtualNetworkID(subscriptionId, d.Get("resource_group_name").(string), d.Get("name").(string))
+
+	ctx = resourcemanager.NewCtxWithRequestOption(ctx, func(opts *client2.RequestOptions) {
+		opts.OptionsObject = resourcemanager.DefaultOption{
+			Headers: map[string]string{
+				"custom-header-foo": "bar",
+			},
+		}
+	})
 	existing, err := client.Get(ctx, id, virtualnetworks.DefaultGetOperationOptions())
 	if err != nil {
 		if !response.WasNotFound(existing.HttpResponse) {
@@ -368,6 +378,13 @@ func resourceVirtualNetworkRead(d *pluginsdk.ResourceData, meta interface{}) err
 		return err
 	}
 
+	ctx = resourcemanager.NewCtxWithRequestOption(ctx, func(opts *client2.RequestOptions) {
+		opts.OptionsObject = resourcemanager.DefaultOption{
+			Headers: map[string]string{
+				"custom-header-foo": "bar-for-read",
+			},
+		}
+	})
 	resp, err := client.Get(ctx, *id, virtualnetworks.DefaultGetOperationOptions())
 	if err != nil {
 		if response.WasNotFound(resp.HttpResponse) {

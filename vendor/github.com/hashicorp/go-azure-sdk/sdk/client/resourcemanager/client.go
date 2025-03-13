@@ -55,6 +55,7 @@ func (c *Client) NewRequest(ctx context.Context, input client.RequestOptions) (*
 		return nil, fmt.Errorf("pre-validating request payload: missing `ContentType`")
 	}
 
+	applyCtxRequestOptions(ctx, &input)
 	req, err := c.Client.NewRequest(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("building %s request: %+v", input.HttpMethod, err)
