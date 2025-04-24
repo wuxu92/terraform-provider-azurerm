@@ -242,6 +242,11 @@ func (r ContainerAppEnvironmentCertificateResource) Read() sdk.ResourceFunc {
 					state.IssueDate = pointer.From(props.IssueDate)
 					state.ExpirationDate = pointer.From(props.ExpirationDate)
 					state.Thumbprint = pointer.From(props.Thumbprint)
+
+					if props.CertificateKeyVaultProperties != nil {
+						state.KeyVaultCertificateURL = pointer.From(props.CertificateKeyVaultProperties.KeyVaultURL)
+						state.KeyVaultIdentity = pointer.From(props.CertificateKeyVaultProperties.Identity)
+					}
 				}
 			}
 
