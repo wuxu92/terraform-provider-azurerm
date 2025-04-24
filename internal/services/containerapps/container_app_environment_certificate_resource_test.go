@@ -34,6 +34,21 @@ func TestAccContainerAppEnvironmentCertificate_basic(t *testing.T) {
 	})
 }
 
+func TestAccContainerAppEnvironmentCertificate_fromKeyVault(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_container_app_environment_certificate", "test")
+	r := ContainerAppEnvironmentCertificateResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.fromKeyVault(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep("certificate_blob_base64", "certificate_password"),
+	})
+}
+
 func TestAccContainerAppEnvironmentCertificate_basicUpdateTags(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_container_app_environment_certificate", "test")
 	r := ContainerAppEnvironmentCertificateResource{}
@@ -87,6 +102,98 @@ resource "azurerm_container_app_environment_certificate" "test" {
   certificate_password         = "TestAcc"
 }
 `, r.template(data), data.RandomInteger)
+}
+
+func (r ContainerAppEnvironmentCertificateResource) fromKeyVault(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+data "azurerm_client_config" "current" {}
+
+%[1]s
+
+resource "azurerm_key_vault" "test" {
+  name                       = "acckv%[3]s"
+  location                   = azurerm_resource_group.test.location
+  resource_group_name        = azurerm_resource_group.test.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  soft_delete_retention_days = 7
+
+  access_policy {
+    tenant_id = data.azurerm_client_config.current.tenant_id
+    object_id = data.azurerm_client_config.current.object_id
+
+    certificate_permissions = [
+      "Create",
+      "Delete",
+      "Get",
+      "Import",
+      "Purge",
+      "Recover",
+      "Update",
+      "List",
+    ]
+  }
+}
+
+resource "azurerm_key_vault_certificate" "test" {
+  name         = "acctestcert%[3]s"
+  key_vault_id = azurerm_key_vault.test.id
+
+  certificate_policy {
+    issuer_parameters {
+      name = "Self"
+    }
+
+    key_properties {
+      exportable = true
+      key_size   = 2048
+      key_type   = "RSA"
+      reuse_key  = true
+    }
+
+    lifetime_action {
+      action {
+        action_type = "AutoRenew"
+      }
+
+      trigger {
+        days_before_expiry = 30
+      }
+    }
+
+    secret_properties {
+      content_type = "application/x-pkcs12"
+    }
+
+    x509_certificate_properties {
+      key_usage = [
+        "cRLSign",
+        "dataEncipherment",
+        "digitalSignature",
+        "keyAgreement",
+        "keyEncipherment",
+        "keyCertSign",
+      ]
+
+      subject            = "CN=hello-world"
+      validity_in_months = 12
+    }
+  }
+}
+
+# todo: add identity for app environment
+
+resource "azurerm_container_app_environment_certificate" "test" {
+  name                         = "acctest-cacert%[2]d"
+  container_app_environment_id = azurerm_container_app_environment.test.id
+  key_vault_certificate_url   = azurerm_key_vault_certificate.test.id
+  key_vault_identity          = "system"
+}
+`, r.template(data), data.RandomInteger, data.RandomString)
 }
 
 func (r ContainerAppEnvironmentCertificateResource) basicAddTags(data acceptance.TestData) string {
