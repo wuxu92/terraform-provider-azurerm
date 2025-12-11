@@ -4,6 +4,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -433,11 +434,13 @@ func resourceVpnGatewayConnectionResourceRead(d *pluginsdk.ResourceData, meta in
 			d.Set("internet_security_enabled", enableInternetSecurity)
 
 			if err := d.Set("routing", flattenVpnGatewayConnectionRoutingConfiguration(props.RoutingConfiguration)); err != nil {
-				return fmt.Errorf(`setting "routing": %v`, err)
+				return fmt.Errorf("setting `routing`: %v", err)
 			}
 
-			if err := d.Set("vpn_link", flattenVpnGatewayConnectionVpnSiteLinkConnections(props.VpnLinkConnections)); err != nil {
-				return fmt.Errorf(`setting "vpn_link": %v`, err)
+			if vpnLink, err := flattenVpnGatewayConnectionVpnSiteLinkConnections(ctx, client, props.VpnLinkConnections); err != nil {
+				return fmt.Errorf("flattening `vpn_link`: %v", err)
+			} else if err := d.Set("vpn_link", vpnLink); err != nil {
+				return fmt.Errorf("setting `vpn_link`: %v", err)
 			}
 
 			if err := d.Set("traffic_selector_policy", flattenVpnGatewayConnectionTrafficSelectorPolicy(props.TrafficSelectorPolicies)); err != nil {
@@ -571,9 +574,9 @@ func expandVpnGatewayConnectionVpnSiteLinkConnections(input []interface{}) *[]vi
 	return &result
 }
 
-func flattenVpnGatewayConnectionVpnSiteLinkConnections(input *[]virtualwans.VpnSiteLinkConnection) interface{} {
+func flattenVpnGatewayConnectionVpnSiteLinkConnections(ctx context.Context, client *virtualwans.VirtualWANsClient, input *[]virtualwans.VpnSiteLinkConnection) (interface{}, error) {
 	if input == nil {
-		return []interface{}{}
+		return []interface{}{}, nil
 	}
 
 	output := make([]interface{}, 0)
@@ -600,6 +603,22 @@ func flattenVpnGatewayConnectionVpnSiteLinkConnections(input *[]virtualwans.VpnS
 			vpnSiteLinkId = *props.VpnSiteLink.Id
 		}
 
+		// get shared key from a separate API call as it is not returned in the list call
+		sharedKey := ""
+		linkId, err := virtualwans.ParseVpnLinkConnectionID(pointer.From(item.Id))
+		if err != nil {
+			return nil, fmt.Errorf("parsing vpn link connection id %q: %+v", pointer.From(item.Id), err)
+		}
+
+		resp, err := client.VpnLinkConnectionsListDefaultSharedKey(ctx, *linkId)
+		if err != nil && !response.WasNotFound(resp.HttpResponse) {
+			return nil, fmt.Errorf("retrieving shared key for %s: %+v", *linkId, err)
+		}
+
+		if resp.Model != nil && resp.Model.Properties != nil {
+			sharedKey = pointer.From(resp.Model.Properties.SharedKey)
+		}
+
 		output = append(output, map[string]interface{}{
 			"name":                                  pointer.From(item.Name),
 			"dpd_timeout_seconds":                   int(pointer.From(props.DpdTimeoutSeconds)),
@@ -610,7 +629,7 @@ func flattenVpnGatewayConnectionVpnSiteLinkConnections(input *[]virtualwans.VpnS
 			"protocol":                              connectionProtocolType,
 			"connection_mode":                       vpnLinkConnectionMode,
 			"bandwidth_mbps":                        int(pointer.From(props.ConnectionBandwidth)),
-			"shared_key":                            pointer.From(props.SharedKey),
+			"shared_key":                            sharedKey,
 			"bgp_enabled":                           pointer.From(props.EnableBgp),
 			"ipsec_policy":                          flattenVpnGatewayConnectionIpSecPolicies(props.IPsecPolicies),
 			"ratelimit_enabled":                     pointer.From(props.EnableRateLimiting),
@@ -620,7 +639,7 @@ func flattenVpnGatewayConnectionVpnSiteLinkConnections(input *[]virtualwans.VpnS
 		})
 	}
 
-	return output
+	return output, nil
 }
 
 func expandVpnGatewayConnectionIpSecPolicies(input []interface{}) *[]virtualwans.IPsecPolicy {
