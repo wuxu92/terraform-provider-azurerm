@@ -59,6 +59,7 @@ func resourceKubernetesCluster() *pluginsdk.Resource {
 			}),
 
 		CustomizeDiff: pluginsdk.CustomDiffInSequence(
+			customizeDiffAutomaticCluster,
 			// The behaviour of the API requires this, but this could be removed when https://github.com/Azure/azure-rest-api-specs/issues/27373 has been addressed
 			pluginsdk.ForceNewIfChange("default_node_pool.0.upgrade_settings.0.drain_timeout_in_minutes", func(ctx context.Context, old, new, meta interface{}) bool {
 				return old != 0 && new == 0
@@ -1543,6 +1544,16 @@ func resourceKubernetesCluster() *pluginsdk.Resource {
 				},
 			},
 
+			"sku_name": {
+				Type:     pluginsdk.TypeString,
+				Optional: true,
+				Default:  managedclusters.ManagedClusterSKUNameBase,
+				ValidateFunc: validation.StringInSlice([]string{
+					string(managedclusters.ManagedClusterSKUNameBase),
+					string(managedclusters.ManagedClusterSKUNameAutomatic),
+				}, false),
+			},
+
 			"sku_tier": {
 				Type:     pluginsdk.TypeString,
 				Optional: true,
@@ -1941,7 +1952,8 @@ func resourceKubernetesClusterCreate(d *pluginsdk.ResourceData, meta interface{}
 		ExtendedLocation: expandEdgeZone(d.Get("edge_zone").(string)),
 		Location:         location,
 		Sku: &managedclusters.ManagedClusterSKU{
-			Name: pointer.To(managedclusters.ManagedClusterSKUNameBase), // the only possible value at this point
+			// Name: pointer.To(managedclusters.ManagedClusterSKUNameAutomatic), // the only possible value at this point
+			Name: pointer.To(managedclusters.ManagedClusterSKUName(d.Get("sku_name").(string))),
 			Tier: pointer.To(managedclusters.ManagedClusterSKUTier(d.Get("sku_tier").(string))),
 		},
 		Properties: &managedclusters.ManagedClusterProperties{
@@ -2438,13 +2450,18 @@ func resourceKubernetesClusterUpdate(d *pluginsdk.ResourceData, meta interface{}
 		existing.Model.Identity = expandedIdentity
 	}
 
-	if d.HasChange("sku_tier") {
+	if d.HasChanges("sku_tier", "sku_name") {
 		updateCluster = true
 		if existing.Model.Sku == nil {
 			basic := managedclusters.ManagedClusterSKUNameBase
 			existing.Model.Sku = &managedclusters.ManagedClusterSKU{
 				Name: &basic,
 			}
+		}
+
+		if v := d.Get("sku_name").(string); v != "" {
+			skuName := managedclusters.ManagedClusterSKUName(v)
+			existing.Model.Sku.Name = &skuName
 		}
 
 		skuTier := managedclusters.ManagedClusterSKUTierFree
@@ -2907,6 +2924,12 @@ func resourceKubernetesClusterRead(d *pluginsdk.ResourceData, meta interface{}) 
 			skuTier = string(*model.Sku.Tier)
 		}
 		d.Set("sku_tier", skuTier)
+
+		skuName := string(managedclusters.ManagedClusterSKUNameBase)
+		if model.Sku != nil && pointer.From(model.Sku.Name) != "" {
+			skuName = string(pointer.From(model.Sku.Name))
+		}
+		d.Set("sku_name", skuName)
 
 		if props := model.Properties; props != nil {
 			d.Set("dns_prefix", props.DnsPrefix)
