@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/location"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/tags"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/network/2025-01-01/networkinterfaces"
+	"github.com/hashicorp/go-azure-sdk/sdk/client/pollers"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
@@ -295,6 +296,7 @@ func resourceNetworkInterfaceCreate(d *pluginsdk.ResourceData, meta interface{})
 		Tags:             tags.Expand(d.Get("tags").(map[string]interface{})),
 	}
 
+	ctx = pollers.WithInitialPollingDelay(ctx, 1*time.Second)
 	err = client.CreateOrUpdateThenPoll(ctx, id, iface)
 	if err != nil {
 		return fmt.Errorf("creating %s: %+v", id, err)

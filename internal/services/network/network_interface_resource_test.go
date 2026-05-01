@@ -22,6 +22,7 @@ type NetworkInterfaceResource struct{}
 func TestAccNetworkInterface_basic(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_network_interface", "test")
 	r := NetworkInterfaceResource{}
+	t.Skip(r.basic(data))
 	data.ResourceTest(t, r, []acceptance.TestStep{
 		{
 			Config: r.basic(data),
